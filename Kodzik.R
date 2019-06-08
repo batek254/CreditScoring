@@ -1,1 +1,2 @@
 #KOD
+#TEST BARTEK

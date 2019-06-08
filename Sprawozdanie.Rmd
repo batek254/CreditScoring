@@ -1,30 +1,260 @@
 ---
-title: "Sprawozdanie"
-author: "Bartłomiej Fatyga"
-date: "8 czerwca 2019"
+title: "Zdziwko"
+author: "Mateusz Ja?ocha"
+date: "5 czerwca 2019"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(textfeatures)
+library(tidyverse)
+library(itunesr)
+library(corrplot) #Macierz korelacji
+library(gridExtra) #Tabelki
+library(flextable)
+library(officer)
+library(kableExtra)
+library(ltm)
+library(randomForest)
 ```
 
-## R Markdown
+```{r, echo = FALSE, include = FALSE}
+frame_func <- function(frame) {
+  big_b <- fp_border(color="gray70", width = 1)
+  std_b <- fp_border(color="gray70")
+  
+  frame %>% 
+    regulartable() %>% 
+    autofit() %>% 
+    width(width = 2) %>% 
+    fontsize(part = "all", size = 15) %>% 
+    align(part = "all", align = "center") %>% 
+    vline(border = big_b, part = "all" ) %>%
+    vline_left(border = big_b, part = "all" ) %>% 
+    vline_right(border = big_b, part = "all" ) %>% 
+    hline(border = std_b ) %>% 
+    hline_bottom(border = big_b, part = "all") %>% 
+    hline_top(border = big_b, part = "all" ) %>%
+    font(part = "all",fontname = "Times") %>% 
+    bold(part = "header")
+}
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
 ```
 
-## Including Plots
+##2. Features Engineering
+Podstaw? wi?kszo?ci analiz, jest features engineering, kt?ry polega na tworzeniu nowych zmiennych przy pomocy tych istniej?cych. Ma to pom?? przy tworzeniu modeli, zwi?kszaj?c ich skuteczno?? predykcji. W przypadku kiedy zmienna endogeniczna jest zmienn? kategoryczn?, warto zweryfikowa?, czy isntnieje r??nica w rozk?adach nowych zmiennych w zale?no?ci od poziomu zmiennej obja?nianej. Przedstawienie tworzenia nowych zmiennych zosta?o przeprowadzone przy pomocy zbioru z usuni?tymi brakuj?cymi obserwacjami, po czym zostanie zastosowane dla wszystkich wzi?tych pod uwag? przy badaniu zbior?w danych.
 
-You can also embed plots, for example:
+####2.1 Nowe zmienne
+Jako nowe zmienne zosta?y utworzone:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+* <b>Income</b> - Jest to ??czny przych?d miesi?czny osoby ubiegaj?cej si? o kredyt oraz por?czyciela.
+
+* <b>Percent_income_of_loan</b> - Procent jaki stanowi miesi?czny przych?d ca?ej po?yczki.
+
+* <b>Loan_amount_per_month</b> - Kwota po?yczki podzielona przez liczb? miesi?cy jej trwania.
+
+* <b>Percent_loan_per_month_income</b> - Procent jaki stanowi kwota po?yczki podzielonej przez liczb? miesi?cy jej trwania ca?ego przychodu
+
+* <b>n_pers_income</b> - Liczba os?b z osoby ubiegaj?cej si? o kredyt oraz por?czyciela, kt?ra posiada doch?d.
+
+
+####2.2 Charakterystyka nowych zmiennych
+
+<center><b>Kredyt zosta? udzielony</b></center>
+```{r, echo=FALSE}
+feature_eng_set = read.csv("train.csv")
+feature_eng_set = feature_eng_set[complete.cases(feature_eng_set),]
+
+feature_eng_set$Income = (feature_eng_set$ApplicantIncome + feature_eng_set$CoapplicantIncome)
+feature_eng_set$n_pers_income = ifelse(feature_eng_set$ApplicantIncome >0 & feature_eng_set$CoapplicantIncome >0, 1, 0)
+feature_eng_set$Loan_amout_per_month = (feature_eng_set$LoanAmount * 1000)/feature_eng_set$Loan_Amount_Term
+feature_eng_set$Percent_income_of_loan = 100*feature_eng_set$Income/(feature_eng_set$LoanAmount * 1000)
+feature_eng_set$Percent_loan_per_month_income = 100*feature_eng_set$Loan_amout_per_month/feature_eng_set$Income
+
+feature_eng_set0 = feature_eng_set[feature_eng_set$Loan_Status == 0,]
+feature_eng_set1 = feature_eng_set[feature_eng_set$Loan_Status == 1,]
+
+feature_eng_set0_newFeatures_res = data.frame(Loan_Status = "Yes",Income = median(feature_eng_set0$Income), Percent_income_of_loan = median(feature_eng_set0$Percent_income_of_loan), Loan_amount_per_month = median(feature_eng_set0$Loan_amout_per_month),Percent_loan_per_month_income = median(feature_eng_set0$Percent_loan_per_month_income))
+
+feature_eng_set1_newFeatures_res = data.frame(Loan_Status = "No",Income = median(feature_eng_set1$Income), Percent_income_of_loan = median(feature_eng_set1$Percent_income_of_loan), Loan_amount_per_month = median(feature_eng_set1$Loan_amout_per_month),Percent_loan_per_month_income = median(feature_eng_set1$Percent_loan_per_month_income))
+
+median_new_features = rbind(feature_eng_set0_newFeatures_res,feature_eng_set1_newFeatures_res)
+frame_func(median_new_features)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+<center><b>Kredyt nie zosta? udzielony</b></center>
+```{r, echo=FALSE}
+
+feature_eng_set0_newFeatures_sd = data.frame(Loan_Status = "Yes",Income = sd(feature_eng_set0$Income), Percent_income_of_loan = sd(feature_eng_set0$Percent_income_of_loan), Loan_amount_per_month = sd(feature_eng_set0$Loan_amout_per_month),Percent_loan_per_month_income = sd(feature_eng_set0$Percent_loan_per_month_income))
+
+feature_eng_set1_newFeatures_sd = data.frame(Loan_Status = "No",Income = sd(feature_eng_set1$Income), Percent_income_of_loan = sd(feature_eng_set1$Percent_income_of_loan), Loan_amount_per_month = sd(feature_eng_set1$Loan_amout_per_month),Percent_loan_per_month_income = sd(feature_eng_set1$Percent_loan_per_month_income))
+
+median_new_features = rbind(feature_eng_set0_newFeatures_sd,feature_eng_set1_newFeatures_sd)
+frame_func(median_new_features)
+```
+
+Mo?na zauwa?y?, ?e w wi?kszo?ci przypadk?w mediany r??ni? si? w spos?b, kt?ry mo?na uzna? za satysfakcjonuj?cy. Odchylenia w niekt?rych przypadkach s? ju? znacznie r??ne, co mo?e dla zmiennych Income oraz Percent_loan_per_month_income okaza? si? pomocny przy wp?ywie na decyzje modeli.
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE,fig.align = 'center',out.extra='angle=90'}
+set.seed(123)
+plot1 <- feature_eng_set0 %>% 
+            ggplot(aes(x=as.factor(feature_eng_set0[,20]), fill = as.factor(feature_eng_set0[,20])))+
+              geom_histogram(stat = "count")+
+              labs(x = "Liczba os?b z dochodem")+
+              geom_label(stat='count',aes(label=..count..)) +
+              theme(legend.title = element_blank())
+plot2 <- feature_eng_set1 %>% 
+            ggplot(aes(x=as.factor(feature_eng_set1[,20]), fill = as.factor(feature_eng_set1[,20])))+
+              geom_histogram(stat = "count")+
+              labs(x = "Liczba os?b z dochodem")+
+              geom_label(stat='count',aes(label=..count..)) +
+              theme(legend.title =  element_blank())
+
+grid.arrange(plot1, plot2)
+```
+
+W liczno?ciach dla liczby os?b posiadaj?cych doch?d wida?, ?e w przypadku kiedy kredyt zosta? udzielony to w wi?kszo?ci przypadk?w dwie osoby posiada?y doch?d, z kolei kiedy kredyt nie zosta? udzielony to liczno?ci dla obu sytuacji s? praktycznie r?wne.
+
+####2.4 Korelacja
+```{r, echo = FALSE, warning=FALSE}
+zmienne_obj = feature_eng_set[,c(2:12,14:42)]
+korelacja = hetcor(feature_eng_set[,13],zmienne_obj)
+korelacja = data.frame(korelacja$correlations[1,])
+colnames(korelacja) = "Loan_Status"
+korelacja = data.frame(Zmienna = rownames(korelacja)[-1], Korelacja = korelacja[-1,])
+frame_func(korelacja)
+```
+
+Jak mo?na zauwa?y? w tabeli powy?ej, wi?kszo?? zmiennych jest s?abo skorelowana ze zmienn? Loan_Status. Jednak zmienne powsta?e na podstawie zmiennych ApplicantIncome oraz CoapplicantIncome mog? okaza? si? r?wnie dobre lub nawet lepsze we wp?ywie na poprawn? ocen? modelu, ich korelacje s? bliskie lub w niekt?rych przypadkach nawet s?absze od tych nowo powsta?ych. Chocia? pomi?dzy zmiennymi obja?niaj?cymi mo?e dochodzi? do wysokiej korelacji, to jednak modelowanie przy pomocy drzew jest na to odporne.
+
+```{r, echo = FALSE, warning=FALSE}
+########################################Wybranie zbior?w#######################################
+#Lista na zbiory po usunieciu zmiennych
+  noweZbiory = list()
+#Data frame na wyniki acc na podstawie, kt?rego wybrane zostanie 10 zbiorow
+  accZbiorow = data.frame(ACC=NA)
+for(z in 1:length(listaDanych)) {
+  
+  feature_eng_set = listaDanych[[z]]
+  
+  #Przygotowanie nowych zmiennych
+  feature_eng_set$Income = (feature_eng_set$ApplicantIncome + feature_eng_set$CoapplicantIncome)
+  feature_eng_set$n_pers_income = ifelse(feature_eng_set$ApplicantIncome >0 & feature_eng_set$CoapplicantIncome >0, 1, 0)
+  feature_eng_set$Loan_amout_per_month = (feature_eng_set$LoanAmount * 1000)/feature_eng_set$Loan_Amount_Term
+  feature_eng_set$Percent_income_of_loan = 100*feature_eng_set$Income/(feature_eng_set$LoanAmount * 1000)
+  feature_eng_set$Percent_loan_per_month_income = 100*feature_eng_set$Loan_amout_per_month/feature_eng_set$Income
+  
+  
+  
+  set = feature_eng_set
+#Przygotowanie 10 krotnej Cross Validation
+wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) - 2)), "wynik_treningowy" = rep(0,(ncol(set) - 2)))
+
+ for(i in 1:(ncol(set) - 2)) {
+   imps_cv = 0
+   acc_rf_all = 0
+   #Randomowe ustawienie danych
+   set.seed(123)
+    set<-set[sample(nrow(set)),]
+    
+    set.seed(123)
+    #Stworz 6 rownych setow
+    folds <- cut(seq(1,nrow(set)),breaks=6,labels=FALSE)
+     for(j in 1:6){
+      #Podzial danych
+      set.seed(123)
+      testIndexes <- which(folds==j,arr.ind=TRUE)
+      trainset <- set[-testIndexes, ]
+      testset <- set[testIndexes, ]
+      #Test
+      set.seed(123)
+      model_rf<-randomFor+est(Loan_Status~.,trainset,ntree=1000)
+      
+      #Sprawdzanie Accuracy
+      pred_rf<-predict(model_rf,testset)
+      conf_rf<-table(round(pred_rf),testset$Loan_Status)
+      acc_rf<-(conf_rf[1,1]+conf_rf[2,2])/sum(conf_rf)
+      
+      #Sprawdzanie istotno?ci zmiennych
+      imp_frame = data.frame(model_rf$importance)
+      imps_cv = imps_cv + imp_frame
+      acc_rf_all = acc_rf_all + acc_rf
+      
+      #Po wykonaniu CV u?rednij wynik ACC i usu? zmienn? o najmniejszym wp?ywie
+      if(j == 6) {
+        gini_imp = imps_cv[,1]
+        to.remove<-rownames(imps_cv)[c(which.min(gini_imp))]
+        wyniki_df[i,]<-c("rf",acc_rf_all/6,to.remove)
+        
+        noweZbiory[[z]] = set
+        accZbiorow[z,1] = acc_rf_all
+        set = set[,-which(names(set) %in% paste(to.remove))]
+        }
+      #Remove the variable with the lowest decrease in Accuracy (Least relevant variable)
+      } 
+  }
+}
+
+  #Wybranie 10 najlepszych zbior?w
+zbioryDoBadania = tail(order(accZbiorow), 10)
+
+#Lista ostatecznie wybranych do badania zbiorow
+zbioryBadanie_lita = list()
+for(i in 1:10) {
+  zbioryBadanie_lita[[i]] = noweZbiory[[zbioryDoBadania[i]]]
+}
+  
+```
+
+```{r}
+zab = aov(lm(Loan_Status~Credit_History:Education, feature_eng_set))
+summary(zab)
+zab = aov(lm(Loan_Status~Credit_History:Dependents, feature_eng_set))
+summary(zab)
+zab = aov(lm(Loan_Status~Credit_History:Self_Employed, feature_eng_set))
+summary(zab)
+zab = aov(lm(Loan_Status~Credit_History:Gender, feature_eng_set))
+summary(zab)
+zab = aov(lm(Loan_Status~Credit_History:Married, feature_eng_set))
+summary(zab)
+unique(feature_eng_set$Education)
+
+probny = feature_eng_set
+#Graduate-History
+probny$Graduate_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Graduate", 1, 0)
+probny$NoGraduate_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Not Graduate", 1, 0)
+probny$Graduate_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Graduate", 1, 0)
+probny$NoGraduate_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Not Graduate", 1, 0)
+
+#Dependents-History
+probny$Dep0_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "0", 1, 0)
+probny$Dep1_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "1", 1, 0)
+probny$Dep2_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "2", 1, 0)
+probny$Dep3_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "3+", 1, 0)
+probny$Dep0_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "0", 1, 0)
+probny$Dep1_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "1", 1, 0)
+probny$Dep3_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "2", 1, 0)
+probny$Dep4_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "3+", 1, 0)
+
+#Gender-History
+probny$Male_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Male", 1, 0)
+probny$Female_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Female", 1, 0)
+probny$Male_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Male", 1, 0)
+probny$Female_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Female", 1, 0)
+
+#SelfEmployed-History
+probny$Self_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Yes", 1, 0)
+probny$NoSelf_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "No", 1, 0)
+probny$Self_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Yes", 1, 0)
+probny$NoSelf_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "No", 1, 0)
+
+#Married-History
+probny$Married_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Yes", 1, 0)
+probny$NoMarried_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "No", 1, 0)
+probny$Married_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Yes", 1, 0)
+probny$NoMarried_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "No", 1, 0)
+
+```
+

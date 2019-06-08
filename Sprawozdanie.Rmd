@@ -17,6 +17,11 @@ library(officer)
 library(kableExtra)
 library(ltm)
 library(randomForest)
+library(ggplot2)
+library(mlr)
+library(kableExtra)
+library(dplyr)
+library(GGally)
 ```
 
 ```{r, echo = FALSE, include = FALSE}
@@ -41,6 +46,58 @@ frame_func <- function(frame) {
 }
 
 ```
+##1. Wstęp
+
+###1.1 Wczytanie oraz wstępna obróbka danych
+```{r}
+#Wczytanie danych
+data <- read.csv('train.csv')
+head(data) %>% kable()
+```
+
+Po wczytaniu danych napotkano pierwszy problem, mianowicie w przypadku zmiennych kategorycznych wartości puste są oznaczane jako pusty string, nie zaś jako NA. 
+
+```{r}
+#Podstawowa obróbka
+data$Gender[data$Gender=='']=NA
+data$Married[data$Married=='']=NA
+data$Dependents[data$Dependents=='']=NA
+data$Education[data$Education=='']=NA
+data$Self_Employed[data$Self_Employed=='']=NA
+data$Property_Area[data$Property_Area=='']=NA
+data <- droplevels(data)
+data$Credit_History <- factor(data$Credit_History, labels = c('N', 'P'))
+```
+
+###1.2 Przedstawienie danych
+```{r}
+summary(data)
+```
+
+Dane train.csv składają się z 614 obserwacji oraz 13 zmiennych:
+
+* Loan_ID - numer identyfikacyjny pożyczki
+* Gender - płęć kredytobiorcy
+* Married - stan cywilny kredytobiorcy
+* Dependents - liczba osób na utrzymaniu
+* Education - poziom ukończonej edukacji
+* Self_Employed - określa, czy kredytobiorca jest samozatrudniony
+* ApplicantIncome - dochody kredytobiorcy
+* CoapplicantIncome - poziom dochodów osoby współubiegającej się o kredyt
+* LoanAmount - kwota pożyczki
+* Loan_Amount_Term - czas na jaki brana jest pożyczka
+* Credit_History - czy historia kredytowa kredytobiorcy jest pozytywna
+* Poperty_Area - teren na jakim znajduje się nieruchomość
+* Loan_Status - decyduje o pozytywnym lub negatywny rozpatrzeniu wniosku o kredyt.
+
+?OPISYWAĆ STATYSTKI OPISOWE?
+
+###1.3 Analiza wizualna
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggpairs(data[,-1])
+```
+
+?TUTAJ TROCHĘ O OUTLIERACH MOŻNA I ROZKŁADACH?
 
 ##2. Features Engineering
 Podstaw? wi?kszo?ci analiz, jest features engineering, kt?ry polega na tworzeniu nowych zmiennych przy pomocy tych istniej?cych. Ma to pom?? przy tworzeniu modeli, zwi?kszaj?c ich skuteczno?? predykcji. W przypadku kiedy zmienna endogeniczna jest zmienn? kategoryczn?, warto zweryfikowa?, czy isntnieje r??nica w rozk?adach nowych zmiennych w zale?no?ci od poziomu zmiennej obja?nianej. Przedstawienie tworzenia nowych zmiennych zosta?o przeprowadzone przy pomocy zbioru z usuni?tymi brakuj?cymi obserwacjami, po czym zostanie zastosowane dla wszystkich wzi?tych pod uwag? przy badaniu zbior?w danych.

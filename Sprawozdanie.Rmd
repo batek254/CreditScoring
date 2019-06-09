@@ -1,8 +1,10 @@
 ---
-title: "Zdziwko"
-author: "Mateusz Ja?ocha"
-date: "5 czerwca 2019"
-output: html_document
+title: "Predicting Result"
+author: "Mateusz Jalocha"
+date: "26 stycznia 2019"
+output:
+  html_document:
+    code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
@@ -468,7 +470,7 @@ frame_func(korelacja)
 Jak mozna zauwazyc w tabeli powyzej, wiekszosc zmiennych jest slabo skorelowana ze zmienna Loan_Status. Jednak zmienne powstale na podstawie zmiennych ApplicantIncome oraz CoapplicantIncome mogl okazac sie rownie dobre lub nawet lepsze we wplywie na poprawna ocene modelu, ich korelacje sa bliskie lub w niektorych przypadkach nawet slabsze od tych nowo powstalych. Chociaz pomiedzy zmiennymi objaaniajacymi moze dochodzic do wysokiej korelacji, to jednak modelowanie przy pomocy drzew jest na to odporne.
 
 ##4. Wybor zbiorow
-Po uzupelnianiu wartosci brakujacych roznymi metodami posiadamy 57 zbiorow danych oraz 3 bazowe. Ze wzgledu na ich zbyt duza ilosc, z 57 utworzonych przy pomocy 3 algorytmow uzupelniania danych, wybierzemy tylko 10, ktore pozwola nam osiganac najlepsza skutecznosc predykcji. Wybor zbiorow, ktore najlepiej nadaja sie do predykcji, dokonamy przy pomocy metody Cross Validation (CV) oraz Random Forest (RF).Dzieki CV dla kazdego ze zbiorow danych zostanie utworzone po 6 zbiorow teningowych oraz testowych i accuracy zbioru bedzie liczone jako srednia arytmetyczna wynikow z metody RF. Nastepnie przy pomocy wspolczynnika Giniego zostanie wybrana zmienna o najmniejszym wplywie, ktora usuniemy ze zbioru. Algorytm bedzie powtarzany dla kazdego zbioru danych do momentu, az zostanie 1 zmienna, po czym wybierze on model dla ktorego skutecznosc predykcji byla najwieksza. Wyniki wybranych zbiorow prezentuja sie nastepujaca:
+Po uzupelnianiu wartosci brakujacych roznymi metodami posiadamy 57 zbiorow danych oraz 3 bazowe. Ze wzgledu na ich zbyt duza ilosc, z 57 utworzonych przy pomocy 3 algorytmow uzupelniania danych, wybierzemy tylko 5, ktore pozwola nam osiganac najlepsza skutecznosc predykcji. Wybor zbiorow, ktore najlepiej nadaja sie do predykcji, dokonamy przy pomocy metody Cross Validation (CV) oraz Random Forest (RF).Dzieki CV dla kazdego ze zbiorow danych zostanie utworzone po 6 zbiorow teningowych oraz testowych i accuracy zbioru bedzie liczone jako srednia arytmetyczna wynikow z metody RF. Nastepnie przy pomocy wspolczynnika Giniego zostanie wybrana zmienna o najmniejszym wplywie, ktora usuniemy ze zbioru. Algorytm bedzie powtarzany dla kazdego zbioru danych do momentu, az zostanie 1 zmienna, po czym wybierze on model dla ktorego skutecznosc predykcji byla najwieksza. Wyniki wybranych zbiorow prezentuja sie nastepujaca:
 ```{r, echo = FALSE, warning=FALSE}
 ########################################Wybranie zbior?w#######################################)
 #Lista na zbiory po usunieciu zmiennych
@@ -538,11 +540,11 @@ wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) -
 }
 
   #Wybranie 10 najlepszych zbior?w
-zbioryDoBadania = tail(order(accZbiorow), 10)
+zbioryDoBadania = tail(order(accZbiorow), 5)
 
 #Lista ostatecznie wybranych do badania zbiorow
 zbioryBadanie_lita = list()
-for(i in 1:10) {
+for(i in 1:5) {
   zbioryBadanie_lita[[i]] = noweZbiory[[zbioryDoBadania[i]]]
 }
 
@@ -682,7 +684,7 @@ zbioryBazowe = tail(order(accZbiorow), 3)
 #Lista ostatecznie wybranych do badania zbiorow
 zbioryBazowe_lita = list()
 for(i in 1:3) {
-  zbioryBazowe_lita[[i]] = noweZbiory[[zbioryBazowe_lita[i]]]
+  zbioryBazowe_lita[[i]] = noweZbiory[[zbioryBazowe[i]]]
 }
 accZbiorow[zbioryBazowe,]
 nazw = c("NA - remove", "KNN - k=6", "CreditHist - k = 6")

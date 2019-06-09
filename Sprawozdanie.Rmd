@@ -6,7 +6,11 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(
+	message = FALSE,
+	warning = FALSE,
+	include = FALSE
+)
 library(textfeatures)
 library(tidyverse)
 library(itunesr)
@@ -22,6 +26,7 @@ library(mlr)
 library(kableExtra)
 library(dplyr)
 library(GGally)
+library(corrplot)
 ```
 
 ```{r, echo = FALSE, include = FALSE}
@@ -90,14 +95,18 @@ Dane train.csv składają się z 614 obserwacji oraz 13 zmiennych:
 * Poperty_Area - teren na jakim znajduje się nieruchomość
 * Loan_Status - decyduje o pozytywnym lub negatywny rozpatrzeniu wniosku o kredyt.
 
-?OPISYWAĆ STATYSTKI OPISOWE?
-
 ###1.3 Analiza wizualna
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 ggpairs(data[,-1])
 ```
 
-?TUTAJ TROCHĘ O OUTLIERACH MOŻNA I ROZKŁADACH?
+
+
+###1.4 Feature Scaling
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+data_norm <- normalizeFeatures(data)
+summarizeColumns(data_norm)
+```
 
 ##2. Features Engineering
 Podstaw? wi?kszo?ci analiz, jest features engineering, kt?ry polega na tworzeniu nowych zmiennych przy pomocy tych istniej?cych. Ma to pom?? przy tworzeniu modeli, zwi?kszaj?c ich skuteczno?? predykcji. W przypadku kiedy zmienna endogeniczna jest zmienn? kategoryczn?, warto zweryfikowa?, czy isntnieje r??nica w rozk?adach nowych zmiennych w zale?no?ci od poziomu zmiennej obja?nianej. Przedstawienie tworzenia nowych zmiennych zosta?o przeprowadzone przy pomocy zbioru z usuni?tymi brakuj?cymi obserwacjami, po czym zostanie zastosowane dla wszystkich wzi?tych pod uwag? przy badaniu zbior?w danych.

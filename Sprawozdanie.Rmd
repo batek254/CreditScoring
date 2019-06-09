@@ -7,24 +7,85 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(textfeatures)
-library(tidyverse)
-library(itunesr)
-library(corrplot) #Macierz korelacji
-library(gridExtra) #Tabelki
-library(flextable)
-library(officer)
-library(kableExtra)
-library(ltm)
-library(randomForest)
-library(ggplot2)
-library(mlr)
-library(kableExtra)
-library(dplyr)
-library(GGally)
+library("textfeatures")
+library("tidyverse")
+library("itunesr")
+library("corrplot") #Macierz korelacji
+library("gridExtra") #Tabelki
+library("flextable")
+library("officer")
+library("kableExtra")
+library("ltm")
+library("naniar")
+library("randomForest")
+library("ggplot2")
+library("mlr")
+library("kableExtra")
+library("dplyr")
+library("GGally")
+library("mice")
+library("forecast")
+library("missForest")
+library("rlist")
 ```
 
 ```{r, echo = FALSE, include = FALSE}
+##########################Funkcje
+##Funkcja do odpalania metod
+loan_predict<-function(trainset,testset,method,arg_list=NULL){
+  
+  eval(parse(text = "rf <- randomForest"))
+  eval(parse(text = "nb <- naiveBayes"))
+  eval(parse(text = "knn <- knn3"))
+  eval(parse(text = "logit <- glm"))
+  
+  eval(parse(text = paste0("model_construct <- ", method)))
+  model<-do.call(model_construct, c(list(formula=Loan_Status~.,data=trainset),arg_list))
+  
+  pred_test <- predict(model, newdata = testset)
+  if (method=="lda"||method=="qda") {
+    pred_test <- predict(model, newdata = testset)$class 
+  }
+  if (method=="gbm") { 
+    best.iter <- gbm.perf(model, method = "cv")[1]
+    pred_test<-predict(model,testset,n.trees=best.iter)
+    pred_test<-round(pred_test,0)
+    pred_test<-as.factor(pred_test)
+    levels(pred_test)<-c("N","Y") 
+  }
+  if (method=="logit"||method=="knn") { 
+    pred_test<-predict(model,testset,type=if(method=="logit") {type <- "response" })
+    if (method=="knn") { pred_test<-pred_test[,2] }
+    pred_test<-ifelse(pred_test > 0.5,"1", "0")
+  }
+  conf_test <- table(pred_test,testset$Loan_Status)
+  acc_test <-(conf_test[1,1]+conf_test[2,2])/sum(conf_test)
+
+  
+  pred_train <- predict(model, newdata = trainset)
+  if (method=="lda"||method=="qda") { 
+    pred_train <- predict(model, newdata = trainset)$class
+  }
+  if (method=="gbm") { 
+    best.iter <- gbm.perf(model, method = "cv")[1]
+    pred_train<-predict(model,trainset,n.trees=best.iter)
+    pred_train<-round(pred_train,0)
+    pred_train<-as.factor(pred_train)
+    levels(pred_test)<-c("N","Y") 
+  }
+  if (method=="logit"||method=="knn") { 
+    pred_train<-predict(model,trainset,type=if(method=="logit") {type <- "response" })
+    if (method=="knn") { pred_train<-pred_train[,2] }
+    pred_train<-ifelse(pred_train > 0.5,"1", "0")
+  }
+  conf_train <- table(pred_train,trainset$Loan_Status)
+  acc_train <-(conf_train[1,1]+conf_train[2,2])/sum(conf_train)
+  
+  return(list("method"=method,"accuracy_test"=acc_test,"accuracy_train"=acc_train,"confusion_matrix_test"=conf_test))
+}
+
+
+##Funkcja dowyswietlania
 frame_func <- function(frame) {
   big_b <- fp_border(color="gray70", width = 1)
   std_b <- fp_border(color="gray70")
@@ -47,80 +108,247 @@ frame_func <- function(frame) {
 
 ```
 ##1. Wstęp
-
-###1.1 Wczytanie oraz wstępna obróbka danych
+Niniejszy projekt zostal zrobiony w oparciu o konkurs odbywajacy sie na stronie https://www.analyticsvidhya.com/. Do rozwiazania jest praktyczny problem przewidywania czy osoba starajaca sie o pozyczke w banku ja otrzyma. Poprzez analize metod uzupelniania brakujacych danych, tworzenia nowych zmiennych oraz sprawdzenie, ktora z metod predykcyjnych okaze sie najbardziej skuteczna, zostania wybrane metody oraz zmienne, dzieki ktorym skuteczonsc przewidywania bedzie najwieksza. Uzytymi metodami uzupelniania danych w pracy sa algorytmy: KNN, Miss Forest oraz MICE. Jesli chodzi o metody predykcji to w pracy zostaly zastosowane: Random Forest, GBM, Regresja logistyczna, QDA, LDA, XGBoost, Boosting, KNN.
+###1.1 Przedstawienie danych
 ```{r}
-#Wczytanie danych
-data <- read.csv('train.csv')
-head(data) %>% kable()
-```
-
-Po wczytaniu danych napotkano pierwszy problem, mianowicie w przypadku zmiennych kategorycznych wartości puste są oznaczane jako pusty string, nie zaś jako NA. 
-
-```{r}
-#Podstawowa obróbka
-data$Gender[data$Gender=='']=NA
-data$Married[data$Married=='']=NA
-data$Dependents[data$Dependents=='']=NA
-data$Education[data$Education=='']=NA
-data$Self_Employed[data$Self_Employed=='']=NA
-data$Property_Area[data$Property_Area=='']=NA
-data <- droplevels(data)
-data$Credit_History <- factor(data$Credit_History, labels = c('N', 'P'))
-```
-
-###1.2 Przedstawienie danych
-```{r}
-summary(data)
+train2 <- read.csv("train.csv")
+summary(train2)
 ```
 
 Dane train.csv składają się z 614 obserwacji oraz 13 zmiennych:
 
-* Loan_ID - numer identyfikacyjny pożyczki
-* Gender - płęć kredytobiorcy
-* Married - stan cywilny kredytobiorcy
-* Dependents - liczba osób na utrzymaniu
-* Education - poziom ukończonej edukacji
-* Self_Employed - określa, czy kredytobiorca jest samozatrudniony
-* ApplicantIncome - dochody kredytobiorcy
-* CoapplicantIncome - poziom dochodów osoby współubiegającej się o kredyt
-* LoanAmount - kwota pożyczki
-* Loan_Amount_Term - czas na jaki brana jest pożyczka
-* Credit_History - czy historia kredytowa kredytobiorcy jest pozytywna
-* Poperty_Area - teren na jakim znajduje się nieruchomość
-* Loan_Status - decyduje o pozytywnym lub negatywny rozpatrzeniu wniosku o kredyt.
+* <b>Loan_ID</b> - numer identyfikacyjny pożyczki
 
-?OPISYWAĆ STATYSTKI OPISOWE?
+* <b>Gender</b> - płęć kredytobiorcy
+
+* <b>Married</b> - stan cywilny kredytobiorcy
+
+* <b>Dependents</b> - liczba osób na utrzymaniu
+
+* <b>Education</b> - poziom ukończonej edukacji
+
+* <b>Self_Employed</b> - określa, czy kredytobiorca jest samozatrudniony
+
+* <b>ApplicantIncome</b> - dochody kredytobiorcy
+
+* <b>CoapplicantIncome</b> - poziom dochodów osoby współubiegającej się o kredyt
+
+* <b>LoanAmount</b> - kwota pożyczki
+
+* <b>Loan_Amount_Term</b> - czas na jaki brana jest pożyczka
+
+* <b>Credit_History</b> - czy historia kredytowa kredytobiorcy jest pozytywna
+
+* <b>Poperty_Area</b> - teren na jakim znajduje się nieruchomość
+
+* <b>Loan_Status</b> - decyduje o pozytywnym lub negatywny rozpatrzeniu wniosku o kredyt, osiaga wartosc 1 dla negatywnego rozpatrzenia wniosku.
+
+
+###1.2 Wstępna obróbka danych
+```{r}
+#Wczytanie danych
+train2 <- read.csv('train.csv')
+train2$Loan_Status <- ifelse(train2$Loan_Status == "N", 1, 0)
+head(train2) %>% frame_func()
+```
+
+Po wczytaniu danych napotkano pierwszy problem, mianowicie w przypadku zmiennych kategorycznych wartosci puste sa oznaczane jako pusty string, nie zas jako NA. Jednak dla sytuacji kiedy zmienna Married przyjmuje jako wartosc pustego stringa to kredyt zawsze był udzielany, a jesli zmienna Self Employed przyjmuje taka wartosc i przy okazji zmienna Credit History przyjmuje wartosc NA to w 5 na 6 przypadkow kredyt nie zostal udzielony.
+
+<center><b>Married empty</b></center>
+```{r}
+Married_Empty = as.data.frame(table(train2$Loan_Status[train2$Married == ""]))
+colnames(Married_Empty)[1] = "Loan_Status"
+frame_func(Married_Empty)
+```
+
+<center><b>Self Emplyed empty and Credit History NA</b></center>
+```{r}
+SEmployed_naHist = as.data.frame(table(train2$Loan_Status[train2$Self_Employed == ""&is.na(train2$Credit_History)]))
+colnames(SEmployed_naHist)[1] = "Loan_Status"
+frame_func(SEmployed_naHist)
+```
+
+ Na podstawie tych wynikow powstaly nowe zmienne:
+
+* <b>Married_Empty</b> - Zmienna binarna, przyjmujaca 1 dla sytuacji jesli zmienna Married przyjmowala wartosc pustego stringa.
+
+* <b>SEmployed_naHist</b> - Zmienna binarna, przyjmujaca 1 dla sytuacji jesli zmienna Self Employed przyjmowala wartosc pustego stringa, a Credit History wartosc NA.
+
+
+```{r,fig.align = 'center',out.extra='angle=90', fig.height=4}
+Married_Empty = train2$Married
+Married_Empty = ifelse(Married_Empty =="", 1, 0)
+
+SEmployed_naHist = ifelse(train2$Self_Employed =="" & is.na(train2$Credit_History), 1, 0)
+
+train2$Married_Empty = Married_Empty
+train2$SEmployed_naHist = SEmployed_naHist
+train2$Gender[train2$Gender=='']=NA
+train2$Married[train2$Married=='']=NA
+train2$Dependents[train2$Dependents=='']=NA
+train2$Education[train2$Education=='']=NA
+train2$Self_Employed[train2$Self_Employed=='']=NA
+train2$Property_Area[train2$Property_Area=='']=NA
+train2 <- droplevels(train2)
+vis_miss(train2)
+```
+
+Na powyzszym wykresie mozna zauwazyc, ze problem brakujacych danych jest dosyc spory. Niniejsza praca zostanie przeprowadzona przy pomocy wielu metod, ktore probuja sobie poradzic z zagadanieniem brakujacych danych oraz dokladnosci predykcji, aby wyniki okazaly sie odbiegac od rzeczywistosci w jak najmniejszym stopniu
 
 ###1.3 Analiza wizualna
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
-ggpairs(data[,-1])
-```
 
 ?TUTAJ TROCHĘ O OUTLIERACH MOŻNA I ROZKŁADACH?
 
-##2. Features Engineering
-Podstaw? wi?kszo?ci analiz, jest features engineering, kt?ry polega na tworzeniu nowych zmiennych przy pomocy tych istniej?cych. Ma to pom?? przy tworzeniu modeli, zwi?kszaj?c ich skuteczno?? predykcji. W przypadku kiedy zmienna endogeniczna jest zmienn? kategoryczn?, warto zweryfikowa?, czy isntnieje r??nica w rozk?adach nowych zmiennych w zale?no?ci od poziomu zmiennej obja?nianej. Przedstawienie tworzenia nowych zmiennych zosta?o przeprowadzone przy pomocy zbioru z usuni?tymi brakuj?cymi obserwacjami, po czym zostanie zastosowane dla wszystkich wzi?tych pod uwag? przy badaniu zbior?w danych.
+```{r}
 
-####2.1 Nowe zmienne
-Jako nowe zmienne zosta?y utworzone:
+train2_norm <- normalizeFeatures(train2, target = 'Loan_Status')
+train2 <- train2_norm
 
-* <b>Income</b> - Jest to ??czny przych?d miesi?czny osoby ubiegaj?cej si? o kredyt oraz por?czyciela.
+set_knn <- c()
+set_knn_test <- c()
+knn_nazwa <- c()
+set_mf <- c()
+set_mf_test <- c()
+mf_nazwa <- c()
+set_mice <- c()
+set_mice_test <- c()
+mice_nazwa <- c()
+```
 
-* <b>Percent_income_of_loan</b> - Procent jaki stanowi miesi?czny przych?d ca?ej po?yczki.
 
-* <b>Loan_amount_per_month</b> - Kwota po?yczki podzielona przez liczb? miesi?cy jej trwania.
+```{r}
+train = train2
+train_NA<-train2[complete.cases(train2),]
+set_NA<-train_NA[,-1]
 
-* <b>Percent_loan_per_month_income</b> - Procent jaki stanowi kwota po?yczki podzielonej przez liczb? miesi?cy jej trwania ca?ego przychodu
+train_knn <- VIM::kNN(train2, variable = c("Gender", "Married", "Dependents","Self_Employed", "LoanAmount", "Loan_Amount_Term", "Credit_History"), k = 6)
+set_KNN<-train_knn[,-1]
 
-* <b>n_pers_income</b> - Liczba os?b z osoby ubiegaj?cej si? o kredyt oraz por?czyciela, kt?ra posiada doch?d.
+train2 <- train2[,c(11,13)]
+train_knn <- VIM::kNN(train2, variable = c("Credit_History"), k = 6)
+set_Credit<-train_knn[,-3]
+
+lista_dane <- list(set_NA,set_KNN,set_Credit)
+train2 = train
+```
+
+##2. Uzupelnianie brakujacych danych
+Zdecydowalismy sie przeprowadzic badanie w oparciu o 3 bazowe zbiory danych, na ktore skladaja sie: zbior z usunietymi obserwacjami brakujacymi, zbior uzupelnionymi obserwacjami brakujacymi w zbiorze testowym metoda KNN oraz zbior, w ktorym znajduje sie tylko zmienna Credit History. Do wynikow uzyskanych na podstawie zbiorow bazowych bedziemy porownywac wyniki uzyskane na zbiorach, w ktorych uzupelnilismy dane roznymi metodami. W kontekscie uzupelniania danych wybralismy trzy algorytmy, ktore w sposob skuteczny potrafia uzupelniac dane wieloma metodami, do wybranych metod zaliczamy:
+
+* <b>KNN</b> - Pierwsza zastosowana przez nas metoda uzupelniania brakujacych danych jest metoda KNN. Przy tworzeniu zbioru danych manipulowalismy parametrem "k", odpowiedzialnym za liczbe najblizszych sasiadow branych pod uwage. Liczba sasiadow przyjmuje wartosci od 1 do pierwiasta liczby obserwacji, a wiec w tym przypadku 25.
+
+* <b>Miss Forest</b> - Druga metoda uzupelniania danych jest metoda missForest, wykorzystujaca lasy losowe. Przy tworzeniu zbiorow danych zmienialismy liczbe drzew (ntree - przyjmuje wartosci 200 oraz 300), maksymalna liczbe iteracji (maxiter - przyjmujaca wartosc  3) oraz liczbe zmiennych brana pod uwage (mtry - przyjmujaca wartosci od 4 do 9).
+
+* <b>Mice</b> - Ostatnia metoda jest funkcja MICE, ktora wykorzystuje do wstawiania obserwacji wybrana w funkcji metode (do uzytych przez nas naleza: pmm, midastouch, sample, cart, random forest). Do manipulacji wykorzystalismy rozne metody uzupelniania danych oraz piec mozliwych zestawow danych z kazdej iteracji (m).
+
+```{r , include=FALSE}
+for (i in 1:round(sqrt(nrow(train2)))){
+  train_knn <- VIM::kNN(train2[,-1], variable = c("Gender", "Married", "Dependents","Self_Employed",   "LoanAmount", "Loan_Amount_Term", "Credit_History"), k = i)
+  set <- train_knn
+  set <- train_knn[,-c(13:19)]
+  set_knn<-c(set_knn,list(set))
+  
+  ###Podzial danych
+  set.seed(123)
+  train_ind<-sample(1:nrow(train2),floor(0.75*nrow(train2)))
+      
+  trainset<-train2[train_ind,]
+  testset<-train2[-train_ind,]  
+  
+  train_knn_test <- VIM::kNN(testset[,-1], variable = c("Gender", "Married", "Dependents","Self_Employed",   "LoanAmount", "Loan_Amount_Term", "Credit_History"), k = i)
+  set_knn_test<-c(set_knn_test,list(train_knn_test[,-c(15:21)]))
+  
+  knn_nazwa <- c(knn_nazwa, list(paste("k = ",i)))
+}
+```
+
+```{r}
+for (nt in c(200,300)){
+  for (mi in c(3)){
+    for (mt in c(4:9)){
+      train_miss <- missForest(train2[,-1], ntree = nt, maxiter = mi, mtry=mt)
+      set <- train_miss$ximp
+      set_mf<-c(set_mf, list(set))
+      
+      ###Podzial danych
+      set.seed(123)
+      train_ind<-sample(1:nrow(train2),floor(0.75*nrow(train2)))
+      
+      trainset<-train2[train_ind,]
+      testset<-train2[-train_ind,]  
+  
+      train_miss_test <- missForest(testset[,-1], ntree = nt, maxiter = mi, mtry=mt)
+      set_mf_test<-c(set_mf_test, list(train_miss_test$ximp))
+      
+      mf_nazwa <- c(mf_nazwa,list(paste0("nt: ",nt," mi: ", mi, " mt: ", mt)))
+    }
+  }
+}
+```
+
+```{r}
+for (f in c("pmm","midastouch","sample","cart","rf")){
+  for (M in c(1,2,3,4,5)){
+    train_mice <- mice(train2[,-1],m=M,method=f,seed = 123,printFlag = FALSE)
+    set <- complete(train_mice,M)
+    set_mice<-c(set_mice, list(set))
+    
+    ###Podzial danych
+    set.seed(123)
+    train_ind<-sample(1:nrow(train2),floor(0.75*nrow(train2)))
+      
+    trainset<-train2[train_ind,]
+    testset<-train2[-train_ind,]  
+  
+    train_mice_test <- mice(testset[,-1],m=M,method=f,seed = 123,printFlag = FALSE)
+    set_mice_test<-c(set_mice_test, list(complete(train_mice_test,M)))
+    
+    mice_nazwa <- c(mice_nazwa,list(paste0("f: ",f," M: ", M)))
+  }
+}
+```
+
+```{r}
+#Po??czenie list z uzupelniania
+uzupelnianie_dane = c(set_knn_test,set_mf_test,set_mice_test)
+nazwa_atrybutow = c(knn_nazwa,mf_nazwa,mice_nazwa)
+nazwa_metody = c((rep(list("KNN"), length(knn_nazwa))), rep(list("Miss Forest"), length(mf_nazwa)), rep(list("Mice"), length(mice_nazwa)))
+
+zbior_doUsuniecia = c()
+for( i in 1:length(uzupelnianie_dane)) {
+  if(sum(is.na(uzupelnianie_dane[[i]]))) {
+    zbior_doUsuniecia = c(zbior_doUsuniecia, i) 
+  }
+}
+
+uzupelnianie_dane = list.remove(uzupelnianie_dane,zbior_doUsuniecia)
+nazwa_atrybutow = list.remove(nazwa_atrybutow,zbior_doUsuniecia)
+nazwa_metody = list.remove(nazwa_metody,zbior_doUsuniecia)
+```
+
+##3. Features Engineering
+Podstawa wiekszosci analiz, jest features engineering, ktory polega na tworzeniu nowych zmiennych przy pomocy tych istniejacych. Ma to pomoc przy tworzeniu modeli, zwiekszajac ich skutecznosc predykcji. W przypadku kiedy zmienna endogeniczna jest zmienna kategoryczna, warto zweryfikowac, czy isntnieje roznica w rozkladach nowych zmiennych w zaleznosci od poziomu zmiennej objasnianej. Przedstawienie tworzenia nowych zmiennych zostalo przeprowadzone przy pomocy zbioru z usunietymi brakujacymi obserwacjami, po czym zostanie zastosowane dla wszystkich wzietych pod uwage przy badaniu zbiorow danych.
+
+####3.1 Nowe zmienne
+Jako nowe zmienne zostaly utworzone:
+
+* <b>Income</b> - Jest to laczny przychod miesieczny osoby ubiegajacej sie o kredyt oraz poreczyciela.
+
+* <b>Percent_income_of_loan</b> - Procent jaki stanowi miesieczny przychod calej pozyczki.
+
+* <b>Loan_amount_per_month</b> - Kwota pozyczki podzielona przez liczbe miesiecy jej trwania.
+
+* <b>Percent_loan_per_month_income</b> - Procent jaki stanowi kwota pozyczki podzielonej przez liczbe miesiecy jej trwania calego przychodu
+
+* <b>n_pers_income</b> - Liczba osob z osoby ubiegajacej sie o kredyt oraz poreczyciela, ktora posiada doch?d.
 
 
-####2.2 Charakterystyka nowych zmiennych
+####3.2 Charakterystyka nowych zmiennych
 
-<center><b>Kredyt zosta? udzielony</b></center>
+<center><b>Kredyt zostal udzielony</b></center>
 ```{r, echo=FALSE}
-feature_eng_set = read.csv("train.csv")
+feature_eng_set = read.csv('C:/Users/User/Desktop/train.csv')
+feature_eng_set$Loan_Status <- ifelse(feature_eng_set$Loan_Status == "N", 1, 0)
 feature_eng_set = feature_eng_set[complete.cases(feature_eng_set),]
 
 feature_eng_set$Income = (feature_eng_set$ApplicantIncome + feature_eng_set$CoapplicantIncome)
@@ -141,7 +369,7 @@ frame_func(median_new_features)
 ```
 
 
-<center><b>Kredyt nie zosta? udzielony</b></center>
+<center><b>Kredyt nie zostal udzielony</b></center>
 ```{r, echo=FALSE}
 
 feature_eng_set0_newFeatures_sd = data.frame(Loan_Status = "Yes",Income = sd(feature_eng_set0$Income), Percent_income_of_loan = sd(feature_eng_set0$Percent_income_of_loan), Loan_amount_per_month = sd(feature_eng_set0$Loan_amout_per_month),Percent_loan_per_month_income = sd(feature_eng_set0$Percent_loan_per_month_income))
@@ -152,18 +380,18 @@ median_new_features = rbind(feature_eng_set0_newFeatures_sd,feature_eng_set1_new
 frame_func(median_new_features)
 ```
 
-Mo?na zauwa?y?, ?e w wi?kszo?ci przypadk?w mediany r??ni? si? w spos?b, kt?ry mo?na uzna? za satysfakcjonuj?cy. Odchylenia w niekt?rych przypadkach s? ju? znacznie r??ne, co mo?e dla zmiennych Income oraz Percent_loan_per_month_income okaza? si? pomocny przy wp?ywie na decyzje modeli.
+Mozna zauwazyc, ze w wiekszosci przypadkow mediany roznia sie w sposob, ktory mozna uznac za satysfakcjonujacy. Odchylenia w niektorych przypadkach sa juz znacznie rozne, co moze dla zmiennych Income oraz Percent_loan_per_month_income okazac sie pomocny przy wplywie na decyzje modeli.
 
 ```{r, echo = FALSE, message=FALSE, warning=FALSE,fig.align = 'center',out.extra='angle=90'}
 set.seed(123)
 plot1 <- feature_eng_set0 %>% 
-            ggplot(aes(x=as.factor(feature_eng_set0[,20]), fill = as.factor(feature_eng_set0[,20])))+
+            ggplot(aes(x=as.factor(feature_eng_set0$n_pers_income), fill = as.factor(feature_eng_set0$n_pers_income)))+
               geom_histogram(stat = "count")+
-              labs(x = "Liczba os?b z dochodem")+
+              labs(x = "Liczba osob z dochodem")+
               geom_label(stat='count',aes(label=..count..)) +
               theme(legend.title = element_blank())
 plot2 <- feature_eng_set1 %>% 
-            ggplot(aes(x=as.factor(feature_eng_set1[,20]), fill = as.factor(feature_eng_set1[,20])))+
+            ggplot(aes(x=as.factor(feature_eng_set1$n_pers_income), fill = as.factor(feature_eng_set1$n_pers_income)))+
               geom_histogram(stat = "count")+
               labs(x = "Liczba os?b z dochodem")+
               geom_label(stat='count',aes(label=..count..)) +
@@ -172,11 +400,11 @@ plot2 <- feature_eng_set1 %>%
 grid.arrange(plot1, plot2)
 ```
 
-W liczno?ciach dla liczby os?b posiadaj?cych doch?d wida?, ?e w przypadku kiedy kredyt zosta? udzielony to w wi?kszo?ci przypadk?w dwie osoby posiada?y doch?d, z kolei kiedy kredyt nie zosta? udzielony to liczno?ci dla obu sytuacji s? praktycznie r?wne.
+W licznosciach dla liczby osob posiadajacych dochod widac, ze w przypadku kiedy kredyt zostal udzielony to w wiekszosci przypadkow dwie osoby posiadaly dochod, z kolei kiedy kredyt nie zostal udzielony to licznosci dla obu sytuacji sa praktycznie rowne.
 
-####2.4 Korelacja
+####3.4 Korelacja
 ```{r, echo = FALSE, warning=FALSE}
-zmienne_obj = feature_eng_set[,c(2:12,14:42)]
+zmienne_obj = feature_eng_set[,c(2:12,14:ncol(feature_eng_set))]
 korelacja = hetcor(feature_eng_set[,13],zmienne_obj)
 korelacja = data.frame(korelacja$correlations[1,])
 colnames(korelacja) = "Loan_Status"
@@ -184,14 +412,17 @@ korelacja = data.frame(Zmienna = rownames(korelacja)[-1], Korelacja = korelacja[
 frame_func(korelacja)
 ```
 
-Jak mo?na zauwa?y? w tabeli powy?ej, wi?kszo?? zmiennych jest s?abo skorelowana ze zmienn? Loan_Status. Jednak zmienne powsta?e na podstawie zmiennych ApplicantIncome oraz CoapplicantIncome mog? okaza? si? r?wnie dobre lub nawet lepsze we wp?ywie na poprawn? ocen? modelu, ich korelacje s? bliskie lub w niekt?rych przypadkach nawet s?absze od tych nowo powsta?ych. Chocia? pomi?dzy zmiennymi obja?niaj?cymi mo?e dochodzi? do wysokiej korelacji, to jednak modelowanie przy pomocy drzew jest na to odporne.
+Jak mozna zauwazyc w tabeli powyzej, wiekszosc zmiennych jest slabo skorelowana ze zmienna Loan_Status. Jednak zmienne powstale na podstawie zmiennych ApplicantIncome oraz CoapplicantIncome mogl okazac sie rownie dobre lub nawet lepsze we wplywie na poprawna ocene modelu, ich korelacje sa bliskie lub w niektorych przypadkach nawet slabsze od tych nowo powstalych. Chociaz pomiedzy zmiennymi objaaniajacymi moze dochodzic do wysokiej korelacji, to jednak modelowanie przy pomocy drzew jest na to odporne.
 
+##4. Wybor zbiorow
+Po uzupelnianiu wartosci brakujacych roznymi metodami posiadamy 57 zbiorow danych oraz 3 bazowe. Ze wzgledu na ich zbyt duza ilosc, z 57 utworzonych przy pomocy 3 algorytmow uzupelniania danych, wybierzemy tylko 10, ktore pozwola nam osiganac najlepsza skutecznosc predykcji. Wybor zbiorow, ktore najlepiej nadaja sie do predykcji, dokonamy przy pomocy metody Cross Validation (CV) oraz Random Forest (RF).Dzieki CV dla kazdego ze zbiorow danych zostanie utworzone po 6 zbiorow teningowych oraz testowych i accuracy zbioru bedzie liczone jako srednia arytmetyczna wynikow z metody RF. Nastepnie przy pomocy wspolczynnika Giniego zostanie wybrana zmienna o najmniejszym wplywie, ktora usuniemy ze zbioru. Algorytm bedzie powtarzany dla kazdego zbioru danych do momentu, az zostanie 1 zmienna, po czym wybierze on model dla ktorego skutecznosc predykcji byla najwieksza. Wyniki wybranych zbiorow prezentuja sie nastepujaca:
 ```{r, echo = FALSE, warning=FALSE}
-########################################Wybranie zbior?w#######################################
+########################################Wybranie zbior?w#######################################)
 #Lista na zbiory po usunieciu zmiennych
   noweZbiory = list()
 #Data frame na wyniki acc na podstawie, kt?rego wybrane zostanie 10 zbiorow
   accZbiorow = data.frame(ACC=NA)
+  listaDanych = uzupelnianie_dane
 for(z in 1:length(listaDanych)) {
   
   feature_eng_set = listaDanych[[z]]
@@ -227,7 +458,91 @@ wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) -
       testset <- set[testIndexes, ]
       #Test
       set.seed(123)
-      model_rf<-randomFor+est(Loan_Status~.,trainset,ntree=1000)
+      model_rf<-randomForest(Loan_Status~.,trainset,ntree=1000)
+      
+      #Sprawdzanie Accuracy
+      pred_rf<-predict(model_rf,testset)
+      acc_rf<-1 - accuracy(round(pred_rf),testset$Loan_Status)[,1]
+      
+      #Sprawdzanie istotno?ci zmiennych
+      imp_frame = data.frame(model_rf$importance)
+      imps_cv = imps_cv + imp_frame
+      acc_rf_all = acc_rf_all + acc_rf
+      
+      #Po wykonaniu CV u?rednij wynik ACC i usu? zmienn? o najmniejszym wp?ywie
+      if(j == 6) {
+        gini_imp = imps_cv[,1]
+        to.remove<-rownames(imps_cv)[c(which.min(gini_imp))]
+        wyniki_df[i,]<-c("rf",acc_rf_all/6,to.remove)
+        
+        noweZbiory[[z]] = set
+        accZbiorow[z,1] = acc_rf_all/6
+        set = set[,-which(names(set) %in% paste(to.remove))]
+        }
+      #Remove the variable with the lowest decrease in Accuracy (Least relevant variable)
+      } 
+  }
+}
+
+  #Wybranie 10 najlepszych zbior?w
+zbioryDoBadania = tail(order(accZbiorow), 10)
+
+#Lista ostatecznie wybranych do badania zbiorow
+zbioryBadanie_lita = list()
+for(i in 1:10) {
+  zbioryBadanie_lita[[i]] = noweZbiory[[zbioryDoBadania[i]]]
+}
+
+wynik_wyboruZbiorow = data.frame("Nazwa metody" = rev(nazwa_metody[zbioryDoBadania]), "Atrybuty" = rev(unlist(nazwa_atrybutow)[zbioryDoBadania]), "ACC" = rev(accZbiorow[zbioryDoBadania,]))
+
+frame_func(wynik_wyboruZbiorow)
+```
+
+Ponizej natomiast znajduja sie wyniki, ktore przy tej probie osiagnely zbiory bazowe
+```{r, echo = FALSE, warning=FALSE}
+########################################ACC dla 2 pierwszych bazowych zbiorow#######################################
+
+#Lista na zbiory po usunieciu zmiennych
+  noweZbiory = list()
+#Data frame na wyniki acc na podstawie, kt?rego wybrane zostanie 10 zbiorow
+  accZbiorow = data.frame(ACC=NA)
+  listaDanych = c(list(lista_dane[[1]]), list(lista_dane[[2]]),list(lista_dane[[3]]))
+for(z in 1:2) {
+  
+  feature_eng_set = listaDanych[[z]]
+  
+  #Przygotowanie nowych zmiennych
+  feature_eng_set$Income = (feature_eng_set$ApplicantIncome + feature_eng_set$CoapplicantIncome)
+  feature_eng_set$n_pers_income = ifelse(feature_eng_set$ApplicantIncome >0 & feature_eng_set$CoapplicantIncome >0, 1, 0)
+  feature_eng_set$Loan_amout_per_month = (feature_eng_set$LoanAmount * 1000)/feature_eng_set$Loan_Amount_Term
+  feature_eng_set$Percent_income_of_loan = 100*feature_eng_set$Income/(feature_eng_set$LoanAmount * 1000)
+  feature_eng_set$Percent_loan_per_month_income = 100*feature_eng_set$Loan_amout_per_month/feature_eng_set$Income
+  
+  
+  
+  set = feature_eng_set
+#Przygotowanie 10 krotnej Cross Validation
+wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) - 2)), "wynik_treningowy" = rep(0,(ncol(set) - 2)))
+
+ for(i in 1:(ncol(set) - 2)) {
+   imps_cv = 0
+   acc_rf_all = 0
+   #Randomowe ustawienie danych
+   set.seed(123)
+    set<-set[sample(nrow(set)),]
+    
+    set.seed(123)
+    #Stworz 6 rownych setow
+    folds <- cut(seq(1,nrow(set)),breaks=6,labels=FALSE)
+     for(j in 1:6){
+      #Podzial danych
+      set.seed(123)
+      testIndexes <- which(folds==j,arr.ind=TRUE)
+      trainset <- set[-testIndexes, ]
+      testset <- set[testIndexes, ]
+      #Test
+      set.seed(123)
+      model_rf<-randomForest(Loan_Status~.,trainset,ntree=1000)
       
       #Sprawdzanie Accuracy
       pred_rf<-predict(model_rf,testset)
@@ -246,7 +561,7 @@ wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) -
         wyniki_df[i,]<-c("rf",acc_rf_all/6,to.remove)
         
         noweZbiory[[z]] = set
-        accZbiorow[z,1] = acc_rf_all
+        accZbiorow[z,1] = acc_rf_all/6
         set = set[,-which(names(set) %in% paste(to.remove))]
         }
       #Remove the variable with the lowest decrease in Accuracy (Least relevant variable)
@@ -254,64 +569,129 @@ wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) -
   }
 }
 
-  #Wybranie 10 najlepszych zbior?w
-zbioryDoBadania = tail(order(accZbiorow), 10)
+
+```
+
+```{r, echo = FALSE, warning=FALSE}
+########################################ACC dla 2 pierwszych bazowych zbiorow#######################################
+for(z in 3) {
+  
+  feature_eng_set = listaDanych[[z]]
+
+  
+  set = feature_eng_set
+#Przygotowanie 10 krotnej Cross Validation
+wyniki_df<-data.frame("metoda"=rep(0,1),"wynik"=rep(0,1), "wynik_treningowy" = rep(0,1))
+
+   imps_cv = 0
+   acc_rf_all = 0
+   #Randomowe ustawienie danych
+   set.seed(123)
+    set<-set[sample(nrow(set)),]
+    
+    set.seed(123)
+    #Stworz 6 rownych setow
+    folds <- cut(seq(1,nrow(set)),breaks=6,labels=FALSE)
+     for(j in 1:6){
+      #Podzial danych
+      set.seed(123)
+      testIndexes <- which(folds==j,arr.ind=TRUE)
+      trainset <- set[-testIndexes, ]
+      testset <- set[testIndexes, ]
+      #Tests
+      set.seed(123)
+      model_rf<-randomForest(Loan_Status~.,trainset,ntree=1000)
+      
+      #Sprawdzanie Accuracy
+      pred_rf<-predict(model_rf,testset)
+      conf_rf<-table(round(pred_rf),testset$Loan_Status)
+      acc_rf<-(conf_rf[1,1]+conf_rf[2,2])/sum(conf_rf)
+      
+      #Sprawdzanie istotno?ci zmiennych
+      imp_frame = data.frame(model_rf$importance)
+      imps_cv = imps_cv + imp_frame
+      acc_rf_all = acc_rf_all + acc_rf
+      
+      #Po wykonaniu CV u?rednij wynik ACC i usu? zmienn? o najmniejszym wp?ywie
+      if(j == 6) {
+        noweZbiory[[z]] = set
+        accZbiorow[z,1] = acc_rf_all/6
+        }
+      #Remove the variable with the lowest decrease in Accuracy (Least relevant variable)
+      } 
+  }
+
+
+  
+    #Wybranie 10 najlepszych zbior?w
+zbioryBazowe = tail(order(accZbiorow), 3)
 
 #Lista ostatecznie wybranych do badania zbiorow
-zbioryBadanie_lita = list()
-for(i in 1:10) {
-  zbioryBadanie_lita[[i]] = noweZbiory[[zbioryDoBadania[i]]]
+zbioryBazowe_lita = list()
+for(i in 1:3) {
+  zbioryBazowe_lita[[i]] = noweZbiory[[zbioryBazowe_lita[i]]]
 }
-  
+accZbiorow[zbioryBazowe,]
+nazw = c("NA - remove", "KNN - k=6", "CreditHist - k = 6")
+frame_func(data.frame("Metoda"= rev(nazw[zbioryBazowe]), "ACC" = rev(accZbiorow[zbioryBazowe,])))
+```
+
+##5. Dobor metody predykcji
+
+W celu wybrania najlepszej metody przewidujacej czy osoba otrzyma kredyt w banku posluzymy sie tak jak w poprzednim przypadku metoda Cross Validation. Z wybranych metod, jakimi są Random Forest, GBM, Regresja logistyczna, QDA, LDA, XGBoost, Boosting oraz KNN, wybierzemy tę która pozwoli nam na osiągnięcie najlepszego rezultatu dla jednego z wczesniej wybranych zbiorów danych
+
+```{r}
+wszystkie_zbiory = c(zbioryBadanie_lita,zbioryBazowe_lita)
 ```
 
 ```{r}
-zab = aov(lm(Loan_Status~Credit_History:Education, feature_eng_set))
-summary(zab)
-zab = aov(lm(Loan_Status~Credit_History:Dependents, feature_eng_set))
-summary(zab)
-zab = aov(lm(Loan_Status~Credit_History:Self_Employed, feature_eng_set))
-summary(zab)
-zab = aov(lm(Loan_Status~Credit_History:Gender, feature_eng_set))
-summary(zab)
-zab = aov(lm(Loan_Status~Credit_History:Married, feature_eng_set))
-summary(zab)
-unique(feature_eng_set$Education)
+#GBM
+cv_pred <- function(n_times,trainset,testset,method,arg_list=NULL)
+{
+  acc_list = list()
+  for(i in 1:length(wszystkie_zbiory)) {
+  acc = 0
+  set = wszystkie_zbiory[[i]]
+  #Randomly shuffle the data
+  set.seed(123)
+  set<-set[sample(nrow(set)),]
 
-probny = feature_eng_set
-#Graduate-History
-probny$Graduate_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Graduate", 1, 0)
-probny$NoGraduate_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Not Graduate", 1, 0)
-probny$Graduate_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Graduate", 1, 0)
-probny$NoGraduate_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Not Graduate", 1, 0)
+  #Create 10 equally size folds
+  folds <- cut(seq(1,nrow(set)),breaks=n_times,labels=FALSE)
 
-#Dependents-History
-probny$Dep0_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "0", 1, 0)
-probny$Dep1_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "1", 1, 0)
-probny$Dep2_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "2", 1, 0)
-probny$Dep3_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "3+", 1, 0)
-probny$Dep0_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "0", 1, 0)
-probny$Dep1_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "1", 1, 0)
-probny$Dep3_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "2", 1, 0)
-probny$Dep4_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "3+", 1, 0)
-
-#Gender-History
-probny$Male_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Male", 1, 0)
-probny$Female_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Female", 1, 0)
-probny$Male_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Male", 1, 0)
-probny$Female_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Female", 1, 0)
-
-#SelfEmployed-History
-probny$Self_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Yes", 1, 0)
-probny$NoSelf_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "No", 1, 0)
-probny$Self_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Yes", 1, 0)
-probny$NoSelf_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "No", 1, 0)
-
-#Married-History
-probny$Married_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "Yes", 1, 0)
-probny$NoMarried_History = ifelse(feature_eng_set$Credit_History == 1 & feature_eng_set$Education == "No", 1, 0)
-probny$Married_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "Yes", 1, 0)
-probny$NoMarried_NoHistory = ifelse(feature_eng_set$Credit_History == 0 & feature_eng_set$Education == "No", 1, 0)
+  #Perform 10 fold cross validation
+  for(i in 1:n_times){
+      set.seed(123)
+      #Segement your data by fold using the which() function 
+      testIndexes <- which(folds==i,arr.ind=TRUE)
+      testset <- set[testIndexes, ]
+      trainset <- set[-testIndexes, ]
+      
+      wynik = loan_predict(trainset,testset,method,arg_list=NULL)
+      acc = acc + wynik[[2]]
+  }
+  acc_list[[i]] = acc/n_times
+}
+}
 
 ```
 
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```

@@ -30,7 +30,6 @@ library(dplyr)
 library(GGally)
 library(corrplot)
 library("naniar")
-library("mice")
 library("forecast")
 library("missForest")
 library("rlist")
@@ -49,6 +48,7 @@ library("ipred")
 library("missForest")
 library("Matrix")
 library("data.table")
+library("mice")
 ```
 
 ```{r, echo = FALSE, include = FALSE}
@@ -60,7 +60,7 @@ loan_predict<-function(trainset,testset,method,arg_list=NULL){
   eval(parse(text = "nb <- naiveBayes"))
   eval(parse(text = "knn <- knn3"))
   eval(parse(text = "logit <- glm"))
-  
+
   eval(parse(text = paste0("model_construct <- ", method)))
   model<-do.call(model_construct, c(list(formula=Loan_Status~.,data=trainset),arg_list))
   
@@ -72,17 +72,16 @@ loan_predict<-function(trainset,testset,method,arg_list=NULL){
     best.iter <- gbm.perf(model, method = "cv")[1]
     pred_test<-predict(model,testset,n.trees=best.iter)
     pred_test<-round(pred_test,0)
-    pred_test<-as.factor(pred_test)
-    levels(pred_test)<-c("N","Y") 
   }
   if (method=="logit"||method=="knn") { 
     pred_test<-predict(model,testset,type=if(method=="logit") {type <- "response" })
     if (method=="knn") { pred_test<-pred_test[,2] }
     pred_test<-ifelse(pred_test > 0.5,"1", "0")
   }
-  conf_test <- table(pred_test,testset$Loan_Status)
-  acc_test <-(conf_test[1,1]+conf_test[2,2])/sum(conf_test)
-
+  pred_test = as.numeric(pred_test)
+  u <- union(round(pred_test), testset$Loan_Status)
+  conf_test <- table(factor(round(pred_test), u), factor(testset$Loan_Status, u))
+  acc_test <-confusionMatrix(conf_test)$overall['Accuracy']
   
   pred_train <- predict(model, newdata = trainset)
   if (method=="lda"||method=="qda") { 
@@ -92,18 +91,18 @@ loan_predict<-function(trainset,testset,method,arg_list=NULL){
     best.iter <- gbm.perf(model, method = "cv")[1]
     pred_train<-predict(model,trainset,n.trees=best.iter)
     pred_train<-round(pred_train,0)
-    pred_train<-as.factor(pred_train)
-    levels(pred_test)<-c("N","Y") 
   }
   if (method=="logit"||method=="knn") { 
     pred_train<-predict(model,trainset,type=if(method=="logit") {type <- "response" })
     if (method=="knn") { pred_train<-pred_train[,2] }
     pred_train<-ifelse(pred_train > 0.5,"1", "0")
   }
-  conf_train <- table(pred_train,trainset$Loan_Status)
-  acc_train <-(conf_train[1,1]+conf_train[2,2])/sum(conf_train)
+  pred_train = as.numeric(pred_train)
+  u <- union(round(pred_train), trainset$Loan_Status)
+  conf_train <- table(factor(round(pred_train), u), factor(trainset$Loan_Status, u))
+  acc_train <-confusionMatrix(conf_train)$overall['Accuracy']
   
-  return(list("method"=method,"accuracy_test"=acc_test,"accuracy_train"=acc_train,"confusion_matrix_test"=conf_test))
+  return(list("method"=method,"accuracy_test"=as.numeric(acc_test),"accuracy_train"=as.numeric(acc_train),"confusion_matrix_test"=conf_test))
 }
 
 #cross-validation prediction
@@ -222,34 +221,6 @@ frame_func(SEmployed_naHist)
 
  Na podstawie tych wynikow powstaly nowe zmienne:
 
-<<<<<<< HEAD
-* Loan_ID - numer identyfikacyjny pożyczki
-* Gender - płęć kredytobiorcy
-* Married - stan cywilny kredytobiorcy
-* Dependents - liczba osób na utrzymaniu
-* Education - poziom ukończonej edukacji
-* Self_Employed - określa, czy kredytobiorca jest samozatrudniony
-* ApplicantIncome - dochody kredytobiorcy
-* CoapplicantIncome - poziom dochodów osoby współubiegającej się o kredyt
-* LoanAmount - kwota pożyczki
-* Loan_Amount_Term - czas na jaki brana jest pożyczka
-* Credit_History - czy historia kredytowa kredytobiorcy jest pozytywna
-* Poperty_Area - teren na jakim znajduje się nieruchomość
-* Loan_Status - decyduje o pozytywnym lub negatywny rozpatrzeniu wniosku o kredyt.
-
-###1.3 Analiza wizualna
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
-ggpairs(train2[,-1])
-```
-
-
-
-###1.4 Feature Scaling
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
-data_norm <- normalizeFeatures(train2)
-summarizeColumns(data_norm)
-```
-=======
 * <b>Married_Empty</b> - Zmienna binarna, przyjmujaca 1 dla sytuacji jesli zmienna Married przyjmowala wartosc pustego stringa.
 
 * <b>SEmployed_naHist</b> - Zmienna binarna, przyjmujaca 1 dla sytuacji jesli zmienna Self Employed przyjmowala wartosc pustego stringa, a Credit History wartosc NA.
@@ -273,12 +244,18 @@ train2 <- droplevels(train2)
 vis_miss(train2)
 ```
 
+###1.3 Analiza wizualna
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggpairs(train2[,-1])
+```
+
 Na powyzszym wykresie mozna zauwazyc, ze problem brakujacych danych jest dosyc spory. Niniejsza praca zostanie przeprowadzona przy pomocy wielu metod, ktore probuja sobie poradzic z zagadanieniem brakujacych danych oraz dokladnosci predykcji, aby wyniki okazaly sie odbiegac od rzeczywistosci w jak najmniejszym stopniu
 
-###1.3 Analiza wizualna
-
-?TUTAJ TROCHĘ O OUTLIERACH MOŻNA I ROZKŁADACH?
->>>>>>> 7922c48e09f6b83b26aa538366d885786ad72bdf
+###1.4 Feature Scaling
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+data_norm <- normalizeFeatures(train2)
+summarizeColumns(data_norm)
+```
 
 ```{r, warning=FALSE, message=FALSE}
 
@@ -382,7 +359,7 @@ for (f in c("pmm","sample","cart","rf")){
     testset<-train2[-train_ind,]  
   
     train_mice_test <- mice(testset[,-1],m=M,method=f,seed = 123,printFlag = FALSE)
-    set_mice_test<-c(set_mice_test, list(complete(train_mice_test,M)))
+    set_mice_test<-c(set_mice_test, list(mice::complete(train_mice_test,M)))
     
     mice_nazwa <- c(mice_nazwa,list(paste0("f: ",f," M: ", M)))
   }
@@ -394,17 +371,6 @@ for (f in c("pmm","sample","cart","rf")){
 uzupelnianie_dane = c(set_knn,set_mf,set_mice)
 nazwa_atrybutow = c(knn_nazwa,mf_nazwa,mice_nazwa)
 nazwa_metody = c((rep(list("KNN"), length(knn_nazwa))), rep(list("Miss Forest"), length(mf_nazwa)), rep(list("Mice"), length(mice_nazwa)))
-
-zbior_doUsuniecia = c()
-for( i in 1:length(uzupelnianie_dane)) {
-  if(sum(is.na(uzupelnianie_dane[[i]]))) {
-    zbior_doUsuniecia = c(zbior_doUsuniecia, i) 
-  }
-}
-
-uzupelnianie_dane = list.remove(uzupelnianie_dane,zbior_doUsuniecia)
-nazwa_atrybutow = list.remove(nazwa_atrybutow,zbior_doUsuniecia)
-nazwa_metody = list.remove(nazwa_metody,zbior_doUsuniecia)
 ```
 
 ##3. Features Engineering
@@ -730,7 +696,7 @@ W celu wybrania najlepszej metody przewidujacej czy osoba otrzyma kredyt w banku
 wszystkie_zbiory = c(zbioryBadanie_lita,zbioryBazowe_lita)
 ```
 
-```{r, warning=FALSE, message=FALSE}
+```{r, message=FALSE, warning=FALSE, include=FALSE}
 #wektory sprawdzanych parametrów
 ntree_v<-1:17
 mtry_v<-1:10
@@ -753,7 +719,11 @@ for (i in 1:length(hp_v)) {
 best_acc<-max(unlist(acc_list))
 best_parameters<-c(rf_df[,2],knn_df[,2],gbm_df[,4])[unlist(acc_list)==best_acc]
 best_method<-method_v[unlist(acc_list)==best_acc]
-data.frame("best method"=best_method,"best_parameters"=best_parameters,"best_acc"=best_acc) %>% kable()
+#data.frame("best method"=best_method,"best_parameters"=best_parameters,"best_acc"=best_acc) %>% kable()
+data.frame(best_method,best_parameters,best_acc) %>% kable()
+```
+
+```{r, message=FALSE, warning=FALSE}
 ################XGBoost###############
 wyniki_df<-data.frame("NumerZbioru"=rep(0,length(wszystkie_zbiory)),"wynik"=rep(0,length(wszystkie_zbiory)), "wynik_testowy" = rep(0,length(wszystkie_zbiory)))
 for(i in 1:length(wszystkie_zbiory))

@@ -706,7 +706,7 @@ knn_df<-cbind("method"=rep("knn",nrow(expand.grid(k_v))),"hp"=paste0("k=",expand
 n.trees_v<-c(500,1000,6000,10000)
 shrinkage_v<-c(0.015,0.025,0.04,0.055)
 interaction.depth_v<-c(2,5,7)
-gbm_df<-cbind("method"=rep("gbm",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"distribution"=rep("distribution='gaussian'",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"cv.folds"=rep("cv.folds=2",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"hp"=paste0("n.trees=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,1],",","shrinkage=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,2],",","interaction.depth=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,3]))
+gbm_df<-cbind("method"=rep("gbm",nrow(expand.grid(10000,0.04,5))),"distribution"=rep("distribution='gaussian'",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"cv.folds"=rep("cv.folds=2",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"hp"=paste0("n.trees=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,1],",","shrinkage=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,2],",","interaction.depth=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,3]))
 hp_v<-c(paste0("list(",rf_df[,2],")"),paste0("list(",knn_df[,2],")"),paste0("list(",gbm_df[,2],",",gbm_df[,3],",",gbm_df[,4],")"))
 method_v<-c(rf_df[,1],knn_df[,1],gbm_df[,1])
 acc_list<-list()
@@ -723,7 +723,7 @@ best_method<-method_v[unlist(acc_list)==best_acc]
 data.frame(best_method,best_parameters,best_acc) %>% kable()
 ```
 
-```{r, message=FALSE, warning=FALSE}
+```{r, message=FALSE, warning=FALSE, include=FALSE}
 ################XGBoost###############
 wyniki_df<-data.frame("NumerZbioru"=rep(0,length(wszystkie_zbiory)),"wynik"=rep(0,length(wszystkie_zbiory)), "wynik_testowy" = rep(0,length(wszystkie_zbiory)))
 for(i in 1:length(wszystkie_zbiory))
@@ -731,7 +731,7 @@ for(i in 1:length(wszystkie_zbiory))
   set.seed(123)
   set = wszystkie_zbiory[[i]]
   #Zamiana danych treningowych i testowych na data table
-  loanik = which(colnames(trainset)) == "Loan_Status"
+  loanik = which(colnames(trainset) == "Loan_Status")
   ###Podzial danych
   set.seed(123)
   train_ind<-sample(1:nrow(set),floor(0.75*nrow(set)))
@@ -841,11 +841,10 @@ for(i in 1:length(wszystkie_zbiory))
 }
 best_acc<-max(wyniki_df[,2])
 best_set<-wyniki_df[wyniki_df[,2]=best_acc,]
-data.frame("best_set"=best_set,"best_acc"=best_acc) %>% kable()
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-
+data.frame("best_set"=best_set,"best_acc"=best_acc) %>% kable()
 ```
 
 ```{r, warning=FALSE, message=FALSE}

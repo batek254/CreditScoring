@@ -29,6 +29,23 @@ library("mice")
 library("forecast")
 library("missForest")
 library("rlist")
+library("readr")
+library("bnstruct")
+library("haven")
+library("VIM")
+library("xgboost")
+library("randomForest")
+library("gbm")
+library("caret")
+library("class")
+library("e1071")
+library("MASS")
+library("adabag")
+library("ipred")
+library("missForest")
+library("mice")
+library("Matrix")
+library("data.table")
 ```
 
 ```{r, echo = FALSE, include = FALSE}
@@ -319,7 +336,7 @@ for (nt in c(200,300)){
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-for (f in c("pmm","midastouch","sample","cart","rf")){
+for (f in c("pmm","sample","cart","rf")){
   for (M in c(1,2,3,4,5)){
     train_mice <- mice(train2[,-1],m=M,method=f,seed = 123,printFlag = FALSE)
     set <- complete(train_mice,M)
@@ -379,7 +396,7 @@ Jako nowe zmienne zostaly utworzone:
 
 <center><b>Kredyt zostal udzielony</b></center>
 ```{r, echo=FALSE}
-feature_eng_set = read.csv('C:/Users/User/Desktop/train.csv')
+feature_eng_set = read.csv('train.csv')
 feature_eng_set$Loan_Status <- ifelse(feature_eng_set$Loan_Status == "N", 1, 0)
 feature_eng_set = feature_eng_set[complete.cases(feature_eng_set),]
 

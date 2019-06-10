@@ -86,6 +86,36 @@ loan_predict<-function(trainset,testset,method,arg_list=NULL){
   return(list("method"=method,"accuracy_test"=acc_test,"accuracy_train"=acc_train,"confusion_matrix_test"=conf_test))
 }
 
+#cross-validation prediction
+cv_pred <- function(n_times,wszystkie_zbiory,method,arg_list=NULL)
+{
+  acc_list = list()
+  for(j in 1:length(wszystkie_zbiory)) {
+    acc = 0
+    set = wszystkie_zbiory[[j]]
+    #Randomly shuffle the data
+    set.seed(123)
+    set<-set[sample(nrow(set)),]
+    #Create 10 equally size folds
+    folds <- cut(seq(1,nrow(set)),breaks=n_times,labels=FALSE)
+    
+    #Perform 10 fold cross validation
+    for(i in 1:n_times){
+      set.seed(123)
+      #Segement your data by fold using the which() function 
+      testIndexes <- which(folds==i,arr.ind=TRUE)
+      testset <- set[testIndexes, ]
+      trainset <- set[-testIndexes, ]
+      
+      wynik = loan_predict(trainset,testset,method,arg_list=arg_list)
+      acc = acc + wynik[[2]]
+    }
+    
+    acc_list[[j]] <- acc/n_times
+  }
+  return(acc_list)
+}
+
 
 ##Funkcja dowyswietlania
 frame_func <- function(frame) {
@@ -112,7 +142,7 @@ frame_func <- function(frame) {
 ##1. Wstęp
 Niniejszy projekt zostal zrobiony w oparciu o konkurs odbywajacy sie na stronie https://www.analyticsvidhya.com/. Do rozwiazania jest praktyczny problem przewidywania czy osoba starajaca sie o pozyczke w banku ja otrzyma. Poprzez analize metod uzupelniania brakujacych danych, tworzenia nowych zmiennych oraz sprawdzenie, ktora z metod predykcyjnych okaze sie najbardziej skuteczna, zostania wybrane metody oraz zmienne, dzieki ktorym skuteczonsc przewidywania bedzie najwieksza. Uzytymi metodami uzupelniania danych w pracy sa algorytmy: KNN, Miss Forest oraz MICE. Jesli chodzi o metody predykcji to w pracy zostaly zastosowane: Random Forest, GBM, Regresja logistyczna, QDA, LDA, XGBoost, Boosting, KNN.
 ###1.1 Przedstawienie danych
-```{r}
+```{r, warning=FALSE, message=FALSE}
 train2 <- read.csv("train.csv")
 summary(train2)
 ```
@@ -147,7 +177,7 @@ Dane train.csv składają się z 614 obserwacji oraz 13 zmiennych:
 
 
 ###1.2 Wstępna obróbka danych
-```{r}
+```{r, warning=FALSE, message=FALSE}
 #Wczytanie danych
 train2 <- read.csv('train.csv')
 train2$Loan_Status <- ifelse(train2$Loan_Status == "N", 1, 0)
@@ -157,14 +187,14 @@ head(train2) %>% frame_func()
 Po wczytaniu danych napotkano pierwszy problem, mianowicie w przypadku zmiennych kategorycznych wartosci puste sa oznaczane jako pusty string, nie zas jako NA. Jednak dla sytuacji kiedy zmienna Married przyjmuje jako wartosc pustego stringa to kredyt zawsze był udzielany, a jesli zmienna Self Employed przyjmuje taka wartosc i przy okazji zmienna Credit History przyjmuje wartosc NA to w 5 na 6 przypadkow kredyt nie zostal udzielony.
 
 <center><b>Married empty</b></center>
-```{r}
+```{r, warning=FALSE, message=FALSE}
 Married_Empty = as.data.frame(table(train2$Loan_Status[train2$Married == ""]))
 colnames(Married_Empty)[1] = "Loan_Status"
 frame_func(Married_Empty)
 ```
 
 <center><b>Self Emplyed empty and Credit History NA</b></center>
-```{r}
+```{r, warning=FALSE, message=FALSE}
 SEmployed_naHist = as.data.frame(table(train2$Loan_Status[train2$Self_Employed == ""&is.na(train2$Credit_History)]))
 colnames(SEmployed_naHist)[1] = "Loan_Status"
 frame_func(SEmployed_naHist)
@@ -201,7 +231,7 @@ Na powyzszym wykresie mozna zauwazyc, ze problem brakujacych danych jest dosyc s
 
 ?TUTAJ TROCHĘ O OUTLIERACH MOŻNA I ROZKŁADACH?
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 
 train2_norm <- normalizeFeatures(train2, target = 'Loan_Status')
 train2 <- train2_norm
@@ -218,13 +248,13 @@ mice_nazwa <- c()
 ```
 
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 train = train2
 train_NA<-train2[complete.cases(train2),]
 set_NA<-train_NA[,-1]
 
 train_knn <- VIM::kNN(train2, variable = c("Gender", "Married", "Dependents","Self_Employed", "LoanAmount", "Loan_Amount_Term", "Credit_History"), k = 6)
-set_KNN<-train_knn[,-1]
+set_KNN<-train_knn[,-c(1,16:22)]
 
 train2 <- train2[,c(11,13)]
 train_knn <- VIM::kNN(train2, variable = c("Credit_History"), k = 6)
@@ -264,7 +294,7 @@ for (i in 1:round(sqrt(nrow(train2)))){
 }
 ```
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 for (nt in c(200,300)){
   for (mi in c(3)){
     for (mt in c(4:9)){
@@ -288,7 +318,7 @@ for (nt in c(200,300)){
 }
 ```
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 for (f in c("pmm","midastouch","sample","cart","rf")){
   for (M in c(1,2,3,4,5)){
     train_mice <- mice(train2[,-1],m=M,method=f,seed = 123,printFlag = FALSE)
@@ -310,9 +340,9 @@ for (f in c("pmm","midastouch","sample","cart","rf")){
 }
 ```
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 #Po??czenie list z uzupelniania
-uzupelnianie_dane = c(set_knn_test,set_mf_test,set_mice_test)
+uzupelnianie_dane = c(set_knn,set_mf,set_mice)
 nazwa_atrybutow = c(knn_nazwa,mf_nazwa,mice_nazwa)
 nazwa_metody = c((rep(list("KNN"), length(knn_nazwa))), rep(list("Miss Forest"), length(mf_nazwa)), rep(list("Mice"), length(mice_nazwa)))
 
@@ -422,11 +452,14 @@ Po uzupelnianiu wartosci brakujacych roznymi metodami posiadamy 57 zbiorow danyc
 ########################################Wybranie zbior?w#######################################)
 #Lista na zbiory po usunieciu zmiennych
   noweZbiory = list()
+  zbiorki = list()
 #Data frame na wyniki acc na podstawie, kt?rego wybrane zostanie 10 zbiorow
   accZbiorow = data.frame(ACC=NA)
+  accNajlepsze = data.frame(ACC=NA)
   listaDanych = uzupelnianie_dane
-for(z in 1:length(listaDanych)) {
   
+for(z in 1:length(listaDanych)) {
+
   feature_eng_set = listaDanych[[z]]
   
   #Przygotowanie nowych zmiennych
@@ -460,11 +493,11 @@ wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) -
       testset <- set[testIndexes, ]
       #Test
       set.seed(123)
-      model_rf<-randomForest(Loan_Status~.,trainset,ntree=1000)
+      model_rf<-randomForest(Loan_Status~.,trainset,ntree=100)
       
       #Sprawdzanie Accuracy
       pred_rf<-predict(model_rf,testset)
-      acc_rf<-1 - accuracy(round(pred_rf),testset$Loan_Status)[,1]
+      acc_rf<-1 - accuracy(round(pred_rf),testset$Loan_Status)[,3]
       
       #Sprawdzanie istotno?ci zmiennych
       imp_frame = data.frame(model_rf$importance)
@@ -477,25 +510,25 @@ wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) -
         to.remove<-rownames(imps_cv)[c(which.min(gini_imp))]
         wyniki_df[i,]<-c("rf",acc_rf_all/6,to.remove)
         
-        noweZbiory[[z]] = set
-        accZbiorow[z,1] = acc_rf_all/6
+        zbiorki[[i]] = set
+        accZbiorow[i,1] = acc_rf_all/6
         set = set[,-which(names(set) %in% paste(to.remove))]
         }
       #Remove the variable with the lowest decrease in Accuracy (Least relevant variable)
       } 
-  }
+ }
+accNajlepsze[z,1] = max(accZbiorow[,1])
+noweZbiory[[z]] = zbiorki[[which.max(accZbiorow[,1])]]
 }
-
   #Wybranie 10 najlepszych zbior?w
-zbioryDoBadania = tail(order(accZbiorow), 5)
+zbioryDoBadania = tail(order(accNajlepsze), 5)
 
 #Lista ostatecznie wybranych do badania zbiorow
 zbioryBadanie_lita = list()
 for(i in 1:5) {
   zbioryBadanie_lita[[i]] = noweZbiory[[zbioryDoBadania[i]]]
 }
-
-wynik_wyboruZbiorow = data.frame("Nazwa metody" = rev(nazwa_metody[zbioryDoBadania]), "Atrybuty" = rev(unlist(nazwa_atrybutow)[zbioryDoBadania]), "ACC" = rev(accZbiorow[zbioryDoBadania,]))
+wynik_wyboruZbiorow = data.frame("Nazwa metody" = rev(unlist(nazwa_metody)[zbioryDoBadania]), "Atrybuty" = rev(unlist(nazwa_atrybutow)[zbioryDoBadania]), "ACC" = rev(accNajlepsze[zbioryDoBadania,]))
 
 frame_func(wynik_wyboruZbiorow)
 ```
@@ -506,9 +539,12 @@ Ponizej natomiast znajduja sie wyniki, ktore przy tej probie osiagnely zbiory ba
 
 #Lista na zbiory po usunieciu zmiennych
   noweZbiory = list()
+  zbiorki = list()
 #Data frame na wyniki acc na podstawie, kt?rego wybrane zostanie 10 zbiorow
   accZbiorow = data.frame(ACC=NA)
+  accNajlepsze = data.frame(ACC=NA)
   listaDanych = c(list(lista_dane[[1]]), list(lista_dane[[2]]),list(lista_dane[[3]]))
+  
 for(z in 1:2) {
   
   feature_eng_set = listaDanych[[z]]
@@ -544,7 +580,7 @@ wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) -
       testset <- set[testIndexes, ]
       #Test
       set.seed(123)
-      model_rf<-randomForest(Loan_Status~.,trainset,ntree=1000)
+      model_rf<-randomForest(Loan_Status~.,trainset,ntree=100)
       
       #Sprawdzanie Accuracy
       pred_rf<-predict(model_rf,testset)
@@ -562,16 +598,16 @@ wyniki_df<-data.frame("metoda"=rep(0,(ncol(set) - 2)),"wynik"=rep(0,(ncol(set) -
         to.remove<-rownames(imps_cv)[c(which.min(gini_imp))]
         wyniki_df[i,]<-c("rf",acc_rf_all/6,to.remove)
         
-        noweZbiory[[z]] = set
-        accZbiorow[z,1] = acc_rf_all/6
+        zbiorki[[i]] = set
+        accZbiorow[i,1] = acc_rf_all/6
         set = set[,-which(names(set) %in% paste(to.remove))]
         }
       #Remove the variable with the lowest decrease in Accuracy (Least relevant variable)
       } 
-  }
+ }
+accNajlepsze[z,1] = max(accZbiorow[,1])
+noweZbiory[[z]] = zbiorki[[which.max(accNajlepsze[,1])]]
 }
-
-
 ```
 
 ```{r, echo = FALSE, warning=FALSE}
@@ -600,9 +636,9 @@ wyniki_df<-data.frame("metoda"=rep(0,1),"wynik"=rep(0,1), "wynik_treningowy" = r
       testIndexes <- which(folds==j,arr.ind=TRUE)
       trainset <- set[-testIndexes, ]
       testset <- set[testIndexes, ]
-      #Tests
+      #Test
       set.seed(123)
-      model_rf<-randomForest(Loan_Status~.,trainset,ntree=1000)
+      model_rf<-randomForest(Loan_Status~.,trainset,ntree=100)
       
       #Sprawdzanie Accuracy
       pred_rf<-predict(model_rf,testset)
@@ -616,8 +652,8 @@ wyniki_df<-data.frame("metoda"=rep(0,1),"wynik"=rep(0,1), "wynik_treningowy" = r
       
       #Po wykonaniu CV u?rednij wynik ACC i usu? zmienn? o najmniejszym wp?ywie
       if(j == 6) {
-        noweZbiory[[z]] = set
-        accZbiorow[z,1] = acc_rf_all/6
+        zbiorki[[z]] = set
+        accNajlepsze[z,1] = acc_rf_all/6
         }
       #Remove the variable with the lowest decrease in Accuracy (Least relevant variable)
       } 
@@ -626,74 +662,191 @@ wyniki_df<-data.frame("metoda"=rep(0,1),"wynik"=rep(0,1), "wynik_treningowy" = r
 
   
     #Wybranie 10 najlepszych zbior?w
-zbioryBazowe = tail(order(accZbiorow), 3)
+zbioryBazowe = tail(order(accNajlepsze), 3)
 
 #Lista ostatecznie wybranych do badania zbiorow
 zbioryBazowe_lita = list()
 for(i in 1:3) {
-  zbioryBazowe_lita[[i]] = noweZbiory[[zbioryBazowe[i]]]
+  zbioryBazowe_lita[[i]] = zbiorki[[zbioryBazowe[i]]]
 }
-accZbiorow[zbioryBazowe,]
+accNajlepsze[zbioryBazowe,]
 nazw = c("NA - remove", "KNN - k=6", "CreditHist - k = 6")
-frame_func(data.frame("Metoda"= rev(nazw[zbioryBazowe]), "ACC" = rev(accZbiorow[zbioryBazowe,])))
+frame_func(data.frame("Metoda"= rev(nazw[zbioryBazowe]), "ACC" = rev(accNajlepsze[zbioryBazowe,])))
 ```
-
 ##5. Dobor metody predykcji
 
 W celu wybrania najlepszej metody przewidujacej czy osoba otrzyma kredyt w banku posluzymy sie tak jak w poprzednim przypadku metoda Cross Validation. Z wybranych metod, jakimi są Random Forest, GBM, Regresja logistyczna, QDA, LDA, XGBoost, Boosting oraz KNN, wybierzemy tę która pozwoli nam na osiągnięcie najlepszego rezultatu dla jednego z wczesniej wybranych zbiorów danych
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 wszystkie_zbiory = c(zbioryBadanie_lita,zbioryBazowe_lita)
 ```
 
-```{r}
-#GBM
-cv_pred <- function(n_times,trainset,testset,method,arg_list=NULL)
+```{r, warning=FALSE, message=FALSE}
+#wektory sprawdzanych parametrów
+ntree_v<-1:17
+mtry_v<-1:10
+rf_df<-cbind("method"=rep("rf",nrow(expand.grid(ntree_v, mtry_v))),"hp"=paste0("ntree=",expand.grid(ntree_v, mtry_v)[,1],",","mtry=",expand.grid(ntree_v, mtry_v)[,2]))
+
+k_v<-1:16
+knn_df<-cbind("method"=rep("knn",nrow(expand.grid(k_v))),"hp"=paste0("k=",expand.grid(k_v)[,1]))
+
+n.trees_v<-c(500,1000,6000,10000)
+shrinkage_v<-c(0.015,0.025,0.04,0.055)
+interaction.depth_v<-c(2,5,7)
+gbm_df<-cbind("method"=rep("gbm",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"distribution"=rep("distribution='gaussian'",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"cv.folds"=rep("cv.folds=2",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"hp"=paste0("n.trees=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,1],",","shrinkage=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,2],",","interaction.depth=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,3]))
+
+hp_v<-c(paste0("list(",rf_df[,2],")"),paste0("list(",knn_df[,2],")"),paste0("list(",gbm_df[,2],",",gbm_df[,3],",",gbm_df[,4],")"))
+method_v<-c(rf_df[,1],knn_df[,1],gbm_df[,1])
+
+acc_list<-list()
+for (i in 1:length(hp_v)) {
+  method<-method_v[i]
+  arg_list<-eval(parse(text=hp_v[i]))
+  acc<-cv_pred(5,wszystkie_zbiory,method=method,arg_list=arg_list)
+  acc_list[i]<-acc
+}
+
+best_acc<-max(unlist(acc_list))
+best_parameters<-c(rf_df[,2],knn_df[,2],gbm_df[,4])[unlist(acc_list)==best_acc]
+best_method<-method_v[unlist(acc_list)==best_acc]
+
+data.frame("best method"=best_method,"best_parameters"=best_parameters,"best_acc"=best_acc) %>% kable()
+```
+
+```{r, warning=FALSE, message=FALSE}
+################XGBoost###############
+wyniki_df<-data.frame("NumerZbioru"=rep(0,length(wszystkie_zbiory)),"wynik"=rep(0,length(wszystkie_zbiory)), "wynik_testowy" = rep(0,length(wszystkie_zbiory)))
+
+for(i in 1:length(wszystkie_zbiory))
 {
-  acc_list = list()
-  for(i in 1:length(wszystkie_zbiory)) {
-  acc = 0
-  set = wszystkie_zbiory[[i]]
-  #Randomly shuffle the data
   set.seed(123)
-  set<-set[sample(nrow(set)),]
-
-  #Create 10 equally size folds
-  folds <- cut(seq(1,nrow(set)),breaks=n_times,labels=FALSE)
-
-  #Perform 10 fold cross validation
-  for(i in 1:n_times){
-      set.seed(123)
-      #Segement your data by fold using the which() function 
-      testIndexes <- which(folds==i,arr.ind=TRUE)
-      testset <- set[testIndexes, ]
-      trainset <- set[-testIndexes, ]
-      
-      wynik = loan_predict(trainset,testset,method,arg_list=NULL)
-      acc = acc + wynik[[2]]
-  }
-  acc_list[[i]] = acc/n_times
+  set = wszystkie_zbiory[[i]]
+  #Zamiana danych treningowych i testowych na data table
+  ###Podzial danych
+  set.seed(123)
+  train_ind<-sample(1:nrow(set),floor(0.75*nrow(set)))
+  
+  trainset<-set[train_ind,]
+  testset<-set[-train_ind,] 
+  
+  traindata <- data.table(trainset)
+  validationdata <- data.table(testset)
+  
+  numCol <- ncol(traindata)
+  
+  #Zamiana danych data table na Matrix z funckji xgboost
+  trainx <- Matrix(data.matrix(traindata[,-c("Loan_Status"),with=FALSE]), sparse=TRUE)
+  trainy <- as.numeric(traindata$Loan_Status)
+  inputValid <- Matrix(data.matrix(validationdata[,c(1:numCol),with=FALSE]), sparse=TRUE)
+  
+  #Dob?r parametr?w
+  
+  xgbGrid <- expand.grid(
+    nrounds = c(10000),
+    max_depth = seq(3,6,by=1),
+    eta = seq(0.03,0.05,by=0.01),
+    gamma = seq(0,1,by=1),
+    colsample_bytree = seq(0.4,0.6,by = 0.1),
+    min_child_weight = seq(1,1,by = 0.5),
+    subsample = seq(0.4,0.6,by = 0.1),
+    iterations = seq(20,50, by = 1)
+  )
+  
+  rmseErrorsHyperparameters <- apply(xgbGrid, 1, function(parameterList){
+    #Extract Parameters to test
+    currentSubsampleRate <- parameterList[["subsample"]]
+    currentColsampleRate <- parameterList[["colsample_bytree"]]
+    currentMin_Child_Weight <- parameterList[["min_child_weight"]]
+    currentGamma <- parameterList[["gamma"]]
+    currentEta <- parameterList[["eta"]]
+    currentMax_Depth <- parameterList[["max_depth"]]
+    currentNrounds <- parameterList[["nrounds"]]
+    currentIteration <- parameterList[["iterations"]]
+    
+    params <- list(objective = "binary:logistic", 
+                   #booster = "gbtree", 
+                   #eta = 2/currentNrounds,
+                   eta = currentEta, 
+                   gamma = currentGamma, 
+                   max_depth = currentMax_Depth, 
+                   min_child_weight = currentMin_Child_Weight, 
+                   subsample = currentSubsampleRate, 
+                   colsample_bytree = currentColsampleRate)
+    
+    set.seed(123)
+    xgbcv <- xgb.cv(params = params, 
+                    data = trainx, label = trainy,
+                    nrounds = currentNrounds, nfold = 5, 
+                    showsd = T, stratified = T, early_stopping_rounds = 25, maximize = F)
+    
+    test_error <- xgbcv$evaluation_log$test_error_mean[xgbcv$best_iteration]
+    train_error <- xgbcv$evaluation_log$train_error_mean[xgbcv$best_iteration]
+    
+    return(c(test_error, train_error, currentSubsampleRate, currentColsampleRate,
+             currentMin_Child_Weight,currentGamma,currentEta,
+             currentMax_Depth,currentNrounds,xgbcv$best_iteration))
+    
+  })
+  
+  simTrain <- as.data.frame(t(rmseErrorsHyperparameters))
+  colnames(simTrain) <- c('Train_Error','Test_Error','SubSampleRate','ColSampleRate',
+                          'MinChildWgt','Gamma','ETA','MaxDepth','NRound', 'Iteration')
+  simTrain$Diff <- simTrain$Test_Error - simTrain$Train_Error
+  bestTrain <- simTrain[which.max(simTrain[,1]),]
+  bestTrain
+  best_iteration <- bestTrain$Iteration
+  
+  params <- list(objective = "binary:logistic", 
+                 #booster = "gbtree", 
+                 eta = bestTrain$ETA, 
+                 gamma = bestTrain$Gamma, 
+                 max_depth = bestTrain$MaxDepth, 
+                 min_child_weight = bestTrain$MinChildWgt, 
+                 subsample = bestTrain$SubSampleRate, 
+                 colsample_bytree = bestTrain$ColSampleRate
+  )
+  
+  
+  #Training
+  set.seed(123)
+  xgbmodel_train <- xgboost(params = params, data = trainx, label = trainy, nround = best_iteration)
+  
+  xgBoostValidation_train <- predict(xgbmodel_train,trainx)
+  
+  conf_xgboost_train<-table(round(xgBoostValidation_train),trainy)
+  acc_xgboost_train<-(conf_xgboost_train[1,1]+conf_xgboost_train[2,2])/sum(conf_xgboost_train)
+  
+  #Test
+  set.seed(123)
+  xgbmodel <- xgboost(params = params, data = trainx, label = trainy, nrounds = best_iteration)
+  
+  inputValid <- Matrix(data.matrix(validationdata[,-c("Loan_Status"),with=FALSE]), sparse=TRUE)
+  xgBoostValidation <- predict(xgbmodel,inputValid$Loan_Status)
+  
+  conf_xgboost<-table(round(xgBoostValidation),inputValid$Loan_Status)
+  acc_xgboost<-(conf_xgboost[1,1]+conf_xgboost[2,2])/sum(conf_xgboost)
+  
+  wyniki_df[i,]<-c(bestTrain[,1],acc_xgboost,acc_xgboost_train)
+  
 }
-}
+
+best_acc<-max(wyniki_df[,2])
+best_set<-wyniki_df[wyniki_df[,2]=best_acc,]
+data.frame("best_set"=best_set,"best_acc"=best_acc) %>% kable()
+```
+
+```{r, warning=FALSE, message=FALSE}
 
 ```
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 
 ```
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 
 ```
 
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
+```{r, warning=FALSE, message=FALSE}
 
 ```

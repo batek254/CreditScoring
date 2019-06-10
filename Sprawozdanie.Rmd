@@ -8,7 +8,6 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-<<<<<<< HEAD
 knitr::opts_chunk$set(
 	message = FALSE,
 	warning = FALSE,
@@ -30,37 +29,16 @@ library(kableExtra)
 library(dplyr)
 library(GGally)
 library(corrplot)
-=======
-knitr::opts_chunk$set(echo = TRUE)
-library("textfeatures")
-library("tidyverse")
-library("itunesr")
-library("corrplot") #Macierz korelacji
-library("gridExtra") #Tabelki
-library("flextable")
-library("officer")
-library("kableExtra")
-library("ltm")
 library("naniar")
-library("randomForest")
-library("ggplot2")
-library("mlr")
-library("kableExtra")
-library("dplyr")
-library("GGally")
 library("mice")
 library("forecast")
 library("missForest")
 library("rlist")
-<<<<<<< HEAD
->>>>>>> 7922c48e09f6b83b26aa538366d885786ad72bdf
-=======
 library("readr")
 library("bnstruct")
 library("haven")
 library("VIM")
 library("xgboost")
-library("randomForest")
 library("gbm")
 library("caret")
 library("class")
@@ -69,10 +47,8 @@ library("MASS")
 library("adabag")
 library("ipred")
 library("missForest")
-library("mice")
 library("Matrix")
 library("data.table")
->>>>>>> 3565bc4d14ccabab67593d295c29798d4603d47b
 ```
 
 ```{r, echo = FALSE, include = FALSE}
@@ -263,14 +239,14 @@ frame_func(SEmployed_naHist)
 
 ###1.3 Analiza wizualna
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-ggpairs(data[,-1])
+ggpairs(train2[,-1])
 ```
 
 
 
 ###1.4 Feature Scaling
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-data_norm <- normalizeFeatures(data)
+data_norm <- normalizeFeatures(train2)
 summarizeColumns(data_norm)
 ```
 =======
@@ -395,7 +371,7 @@ for (nt in c(200,300)){
 for (f in c("pmm","sample","cart","rf")){
   for (M in c(1,2,3,4,5)){
     train_mice <- mice(train2[,-1],m=M,method=f,seed = 123,printFlag = FALSE)
-    set <- complete(train_mice,M)
+    set <- mice::complete(train_mice,M)
     set_mice<-c(set_mice, list(set))
     
     ###Podzial danych
@@ -759,18 +735,14 @@ wszystkie_zbiory = c(zbioryBadanie_lita,zbioryBazowe_lita)
 ntree_v<-1:17
 mtry_v<-1:10
 rf_df<-cbind("method"=rep("rf",nrow(expand.grid(ntree_v, mtry_v))),"hp"=paste0("ntree=",expand.grid(ntree_v, mtry_v)[,1],",","mtry=",expand.grid(ntree_v, mtry_v)[,2]))
-
 k_v<-1:16
 knn_df<-cbind("method"=rep("knn",nrow(expand.grid(k_v))),"hp"=paste0("k=",expand.grid(k_v)[,1]))
-
 n.trees_v<-c(500,1000,6000,10000)
 shrinkage_v<-c(0.015,0.025,0.04,0.055)
 interaction.depth_v<-c(2,5,7)
 gbm_df<-cbind("method"=rep("gbm",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"distribution"=rep("distribution='gaussian'",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"cv.folds"=rep("cv.folds=2",nrow(expand.grid(n.trees_v,shrinkage_v,interaction.depth_v))),"hp"=paste0("n.trees=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,1],",","shrinkage=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,2],",","interaction.depth=",expand.grid(n.trees_v,shrinkage_v,interaction.depth_v)[,3]))
-
 hp_v<-c(paste0("list(",rf_df[,2],")"),paste0("list(",knn_df[,2],")"),paste0("list(",gbm_df[,2],",",gbm_df[,3],",",gbm_df[,4],")"))
 method_v<-c(rf_df[,1],knn_df[,1],gbm_df[,1])
-
 acc_list<-list()
 for (i in 1:length(hp_v)) {
   method<-method_v[i]
@@ -778,23 +750,18 @@ for (i in 1:length(hp_v)) {
   acc<-cv_pred(5,wszystkie_zbiory,method=method,arg_list=arg_list)
   acc_list[i]<-acc
 }
-
 best_acc<-max(unlist(acc_list))
 best_parameters<-c(rf_df[,2],knn_df[,2],gbm_df[,4])[unlist(acc_list)==best_acc]
 best_method<-method_v[unlist(acc_list)==best_acc]
-
 data.frame("best method"=best_method,"best_parameters"=best_parameters,"best_acc"=best_acc) %>% kable()
-```
-
-```{r, warning=FALSE, message=FALSE}
 ################XGBoost###############
 wyniki_df<-data.frame("NumerZbioru"=rep(0,length(wszystkie_zbiory)),"wynik"=rep(0,length(wszystkie_zbiory)), "wynik_testowy" = rep(0,length(wszystkie_zbiory)))
-
 for(i in 1:length(wszystkie_zbiory))
 {
   set.seed(123)
   set = wszystkie_zbiory[[i]]
   #Zamiana danych treningowych i testowych na data table
+  loanik = which(colnames(trainset)) == "Loan_Status"
   ###Podzial danych
   set.seed(123)
   train_ind<-sample(1:nrow(set),floor(0.75*nrow(set)))
@@ -893,23 +860,18 @@ for(i in 1:length(wszystkie_zbiory))
   set.seed(123)
   xgbmodel <- xgboost(params = params, data = trainx, label = trainy, nrounds = best_iteration)
   
-  inputValid <- Matrix(data.matrix(validationdata[,-c("Loan_Status"),with=FALSE]), sparse=TRUE)
-  xgBoostValidation <- predict(xgbmodel,inputValid$Loan_Status)
+  inputValid <- Matrix(data.matrix(validationdata[,1:numCol,with=FALSE]), sparse=TRUE)
+  xgBoostValidation <- predict(xgbmodel,inputValid[,loanik])
   
-  conf_xgboost<-table(round(xgBoostValidation),inputValid$Loan_Status)
+  conf_xgboost<-table(round(xgBoostValidation),inputValid[,loanik])
   acc_xgboost<-(conf_xgboost[1,1]+conf_xgboost[2,2])/sum(conf_xgboost)
   
   wyniki_df[i,]<-c(bestTrain[,1],acc_xgboost,acc_xgboost_train)
   
 }
-
 best_acc<-max(wyniki_df[,2])
 best_set<-wyniki_df[wyniki_df[,2]=best_acc,]
 data.frame("best_set"=best_set,"best_acc"=best_acc) %>% kable()
-```
-
-```{r, warning=FALSE, message=FALSE}
-
 ```
 
 ```{r, warning=FALSE, message=FALSE}
